@@ -303,13 +303,15 @@ defmodule Absinthe.Phase.Document.Execution.Resolution do
     case split_error_value(error_value) do
       {[], _} ->
         raise Absinthe.Resolution.result_error(error_value, bp_field, source)
+      {[message: message, path: sub_path], extra} ->
+        put_error(result, error(bp_field, message, Enum.reverse(sub_path) ++ path, Map.new(extra)))
       {[message: message], extra} ->
         put_error(result, error(bp_field, message, path, Map.new(extra)))
     end
   end
 
   defp split_error_value(error_value) when is_list(error_value) or is_map(error_value) do
-    Keyword.split(Enum.to_list(error_value), [:message])
+    Keyword.split(Enum.to_list(error_value), [:message,:path])
   end
   defp split_error_value(error_value) when is_binary(error_value) do
     {[message: error_value], []}
