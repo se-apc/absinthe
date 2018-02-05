@@ -23,16 +23,18 @@ defmodule Absinthe.Phase.Document.Validation.OnlyOneSubscription do
     {:ok, bp}
   end
 
-  defp check_op(%{selections: [_, _ | _]} = op) do
-    error = %Phase.Error{
-      phase: __MODULE__,
-      message: "Only one field is permitted on the root object when subscribing",
-      locations: [op.source_location],
-    }
+  # Multiple Root Objects are Supported
+  # TODO: Figure out why this arbitrary limit was added
+  # defp check_op(%{selections: [_, _ | _]} = op) do
+  #   error = %Phase.Error{
+  #     phase: __MODULE__,
+  #     message: "Only one field is permitted on the root object when subscribing",
+  #     locations: [op.source_location],
+  #   }
 
-    op
-    |> flag_invalid(:too_many_fields)
-    |> put_error(error)
-  end
+  #   op
+  #   |> flag_invalid(:too_many_fields)
+  #   |> put_error(error)
+  # end
   defp check_op(op), do: op
 end
