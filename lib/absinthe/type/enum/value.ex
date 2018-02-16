@@ -23,9 +23,10 @@ defmodule Absinthe.Type.Enum.Value do
   * `:deprecation` - Deprecation information for a value, usually
     set-up using the `Absinthe.Schema.Notation.deprecate/2` convenience
     function.
+  * `:meta` - Any meta data to attach to the field
   """
-  @type t :: %{name: binary, description: binary, value: any, deprecation: Type.Deprecation.t | nil, __reference__: Type.Reference.t}
-  defstruct name: nil, description: nil, value: nil, deprecation: nil, __reference__: nil
+  @type t :: %{name: binary, description: binary, value: any, meta: any, deprecation: Type.Deprecation.t | nil, __reference__: Type.Reference.t}
+  defstruct name: nil, description: nil, value: nil, deprecation: nil, meta: nil, __reference__: nil
 
   @spec build(Keyword.t) :: Macro.expr
   def build(raw_values) when is_list(raw_values) do
