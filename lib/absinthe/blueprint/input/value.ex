@@ -1,37 +1,36 @@
 defmodule Absinthe.Blueprint.Input.Value do
-
   @moduledoc false
 
   # An input in a document.
   #
   # Used by arguments, input object fields, and input lists.
 
-  @enforce_keys [:literal]
+  @enforce_keys [:raw, :normalized]
   defstruct [
     :schema_node,
-    :literal,
+    :raw,
     :normalized,
-    :data,
+    :data
   ]
 
   alias Absinthe.Blueprint.Input
 
-  @type variable :: Input.Variable.t
+  @type variable :: Input.Variable.t()
   @type literals ::
-    Input.Integer.t
-  | Input.Float.t
-  | Input.Enum.t
-  | Input.String.t
-  | Input.Boolean.t
-  | Input.List.t
-  | Input.Object.t
-  | variable
+          Input.Integer.t()
+          | Input.Float.t()
+          | Input.Enum.t()
+          | Input.String.t()
+          | Input.Boolean.t()
+          | Input.List.t()
+          | Input.Object.t()
+          | variable
 
   @type t :: %__MODULE__{
-    literal: literals | variable,
-    normalized: literals,
-    data: term,
-  }
+          raw: Input.RawValue.t(),
+          normalized: literals,
+          data: term
+        }
 
   @spec valid?(t) :: boolean
   @doc false
@@ -39,5 +38,4 @@ defmodule Absinthe.Blueprint.Input.Value do
   def valid?(%{normalized: %Absinthe.Blueprint.Input.Null{}}), do: true
   def valid?(%{normalized: nil}), do: false
   def valid?(%{normalized: _}), do: true
-
 end

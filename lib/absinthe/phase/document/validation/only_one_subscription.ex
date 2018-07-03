@@ -12,14 +12,17 @@ defmodule Absinthe.Phase.Document.Validation.OnlyOneSubscription do
   @doc """
   Run the validation.
   """
-  @spec run(Blueprint.t, Keyword.t) :: Phase.result_t
+  @spec run(Blueprint.t(), Keyword.t()) :: Phase.result_t()
   def run(input, _options \\ []) do
-    bp = Blueprint.update_current(input, fn
-      %{type: :subscription} = op ->
-        check_op(op)
-      op ->
-        op
-    end)
+    bp =
+      Blueprint.update_current(input, fn
+        %{type: :subscription} = op ->
+          check_op(op)
+
+        op ->
+          op
+      end)
+
     {:ok, bp}
   end
 

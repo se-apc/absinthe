@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.4.12
+
+- Bug Fix: Fixes shard routing issue with subscription pubsub
+- Bug Fix: Ensure project is compiled when running absinthe mix tasks
+
+## v1.4.11
+
+- Bug Fix: `import_types Foo.{Bar, Baz}` syntax should avoid compilation order issues
+- Enhancement: Context and root value handling is broken out now to facilitate improvements in Absinthe Plug
+
+## v1.4.10
+
+- Bug Fix: Proper GraphQL context handling in subscriptions
+
+## v1.4.9
+
+- Doc Improvements
+- Formatter Improvements
+- Bug Fix: Dataloader won't explode if a given pass uses only already cached values
+
 ## v1.4.7
 
 - Bug Fix: Update `result_selection_t` typespec.
