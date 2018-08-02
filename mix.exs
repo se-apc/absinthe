@@ -1,7 +1,7 @@
 defmodule Absinthe.Mixfile do
   use Mix.Project
 
-  @version "1.4.12"
+  @version "1.5.0-dev"
 
   def project do
     [
@@ -159,7 +159,8 @@ defmodule Absinthe.Mixfile do
       "Document Adapters": [
         Absinthe.Adapter,
         Absinthe.Adapter.LanguageConventions,
-        Absinthe.Adapter.Passthrough
+        Absinthe.Adapter.Passthrough,
+        Absinthe.Adapter.Underscore
       ],
       Execution: [
         Absinthe.Blueprint,
