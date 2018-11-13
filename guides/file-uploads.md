@@ -33,13 +33,13 @@ use the `multipart/form-data` content type. For example, using `cURL`:
 
 ```shell
 $ curl -X POST \\
--F query="{mutation uploadFile(users: \"users_csv\", metadata: \"metadata_json\")" \\
+-F query="mutation { uploadFile(users: \"users_csv\", metadata: \"metadata_json\")}" \\
 -F users_csv=@users.csv \\
 -F metadata_json=@metadata.json \\
 localhost:4000/graphql
 ```
 
-Note how there is a correspondance between the value of the `:users` argument
+Note how there is a correspondence between the value of the `:users` argument
 and the `-F` option indicating the associated file.
 
 By treating uploads as regular arguments we get all the usual GraphQL argument
@@ -48,5 +48,6 @@ we were merely putting them in the context as in other implementations.
 
 ## Integration with Client-side GraphQL Frameworks
 
-* Apollo: [apollo-absinthe-upload-client](https://www.npmjs.com/package/apollo-absinthe-upload-client) (Note: does not support Relay Native as of v1.0.1)
+* Apollo: [apollo-absinthe-upload-link](https://www.npmjs.com/package/apollo-absinthe-upload-link)
+* Apollo (v1): [apollo-absinthe-upload-client](https://www.npmjs.com/package/apollo-absinthe-upload-client) (Note: does not support Relay Native as of v1.0.1)
 * Relay: _(None known. Please submit a pull request updating this information.)_

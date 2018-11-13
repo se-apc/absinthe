@@ -1,7 +1,7 @@
 defmodule Absinthe.Mixfile do
   use Mix.Project
 
-  @version "1.4.12"
+  @version "1.5.0-alpha.1"
 
   def project do
     [
@@ -37,7 +37,11 @@ defmodule Absinthe.Mixfile do
         "Ben Wilson"
       ],
       licenses: ["MIT"],
-      links: %{github: "https://github.com/absinthe-graphql/absinthe"}
+      links: %{
+        Website: "https://absinthe-graphql.org",
+        Changelog: "https://github.com/absinthe-graphql/absinthe/blob/master/CHANGELOG.md",
+        GitHub: "https://github.com/absinthe-graphql/absinthe"
+      }
     ]
   end
 
@@ -50,9 +54,10 @@ defmodule Absinthe.Mixfile do
 
   defp deps do
     [
+      {:benchee, ">= 0.0.0", only: :dev},
+      {:nimble_parsec, "~> 0.4"},
       {:dataloader, "~> 1.0.0", optional: true},
       {:ex_doc, "~> 0.14", only: :dev},
-      {:benchfella, "~> 0.3.0", only: :dev},
       {:dialyze, "~> 0.2", only: :dev},
       {:decimal, "~> 1.0", optional: true},
       {:phoenix_pubsub, ">= 0.0.0", only: :test},
@@ -123,7 +128,6 @@ defmodule Absinthe.Mixfile do
         Absinthe.Type,
         Absinthe.Type.Custom,
         Absinthe.Type.Argument,
-        Absinthe.Type.BuiltIns,
         Absinthe.Type.Custom,
         Absinthe.Type.Directive,
         Absinthe.Type.Enum,
@@ -159,7 +163,8 @@ defmodule Absinthe.Mixfile do
       "Document Adapters": [
         Absinthe.Adapter,
         Absinthe.Adapter.LanguageConventions,
-        Absinthe.Adapter.Passthrough
+        Absinthe.Adapter.Passthrough,
+        Absinthe.Adapter.Underscore
       ],
       Execution: [
         Absinthe.Blueprint,

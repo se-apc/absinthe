@@ -11,11 +11,11 @@ defmodule Absinthe.Type.Scalar do
 
   The following built-in scalar types are defined:
 
-  * `:boolean` - Represents `true` or `false`. See the [GraphQL Specification](https://facebook.github.io/graphql/#sec-Boolean).
-  * `:float` - Represents signed double‐precision fractional values as specified by [IEEE 754](http://en.wikipedia.org/wiki/IEEE_floating_point). See the [GraphQL Specification](https://facebook.github.io/graphql/#sec-Float).
-  * `:id` - Represents a unique identifier, often used to refetch an object or as key for a cache. The ID type is serialized in the same way as a String; however, it is not intended to be human‐readable. See the [GraphQL Specification](https://facebook.github.io/graphql/#sec-ID).
-  * `:integer` - Represents a signed 32‐bit numeric non‐fractional value, greater than or equal to -2^31 and less than 2^31. Note that Absinthe uses the full word `:integer` to identify this type, but its `name` (used by variables, for instance), is `"Int"`. See the [GraphQL Specification](https://facebook.github.io/graphql/#sec-Int).
-  * `:string` - Represents textual data, represented as UTF‐8 character sequences. The String type is most often used by GraphQL to represent free‐form human‐readable text. See the [GraphQL Specification](https://facebook.github.io/graphql/#sec-String).
+  * `:boolean` - Represents `true` or `false`. See the [GraphQL Specification](https://www.graphql.org/learn/schema/#scalar-types).
+  * `:float` - Represents signed double‐precision fractional values as specified by [IEEE 754](http://en.wikipedia.org/wiki/IEEE_floating_point). See the [GraphQL Specification](https://www.graphql.org/learn/schema/#scalar-types).
+  * `:id` - Represents a unique identifier, often used to refetch an object or as key for a cache. The ID type is serialized in the same way as a String; however, it is not intended to be human‐readable. See the [GraphQL Specification](https://www.graphql.org/learn/schema/#scalar-types).
+  * `:integer` - Represents a signed 32‐bit numeric non‐fractional value, greater than or equal to -2^31 and less than 2^31. Note that Absinthe uses the full word `:integer` to identify this type, but its `name` (used by variables, for instance), is `"Int"`. See the [GraphQL Specification](https://www.graphql.org/learn/schema/#scalar-types).
+  * `:string` - Represents textual data, represented as UTF‐8 character sequences. The String type is most often used by GraphQL to represent free‐form human‐readable text. See the [GraphQL Specification](https://www.graphql.org/learn/schema/#scalar-types).
   ## Examples
 
   Supporting a time format in ISOz format, using [Timex](http://hexdocs.pm/timex):
@@ -33,16 +33,15 @@ defmodule Absinthe.Type.Scalar do
 
   alias Absinthe.Type
 
-  def build(%{attrs: attrs}) do
-    quote do: %unquote(__MODULE__){unquote_splicing(attrs)}
+  @doc false
+  defdelegate functions(), to: Absinthe.Blueprint.Schema.ScalarTypeDefinition
+
+  def serialize(type, value) do
+    Type.function(type, :serialize).(value)
   end
 
-  def serialize(%{serialize: serializer}, value) do
-    serializer.(value)
-  end
-
-  def parse(%{parse: parser}, value, context \\ %{}) do
-    case parser do
+  def parse(type, value, context \\ %{}) do
+    case Type.function(type, :parse) do
       parser when is_function(parser, 1) ->
         parser.(value)
 
@@ -66,20 +65,20 @@ defmodule Absinthe.Type.Scalar do
   @type t :: %__MODULE__{
           name: binary,
           description: binary,
-          serialize: (value_t -> any),
-          parse: (any -> {:ok, value_t} | :error),
           identifier: atom,
           __private__: Keyword.t(),
+          definition: Module.t(),
           __reference__: Type.Reference.t()
         }
 
   defstruct name: nil,
             description: nil,
-            serialize: nil,
-            parse: nil,
             identifier: nil,
             __private__: [],
-            __reference__: nil
+            definition: nil,
+            __reference__: nil,
+            parse: nil,
+            serialize: nil
 
   @typedoc "The internal, canonical representation of a scalar value"
   @type value_t :: any

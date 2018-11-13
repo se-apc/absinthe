@@ -34,8 +34,12 @@ defmodule Absinthe.Execution.FragmentSpreadTest do
     """
 
     assert {:ok,
-            %{errors: [%{locations: [%{column: 0, line: 4}], message: "Unknown type \"Foo\"."}]}} ==
-             Absinthe.run(query, Absinthe.Fixtures.ContactSchema)
+            %{
+              errors: [
+                %{locations: [%{column: 1, line: 4}], message: "Unknown type \"Foo\"."},
+                %{locations: [%{column: 1, line: 4}], message: "Fragment \"F0\" is never used."}
+              ]
+            }} == Absinthe.run(query, Absinthe.Fixtures.ContactSchema)
   end
 
   test "errors properly when spreading fragments that don't exist" do
@@ -50,7 +54,7 @@ defmodule Absinthe.Execution.FragmentSpreadTest do
             %{
               errors: [
                 %{
-                  locations: [%{column: 0, line: 3}],
+                  locations: [%{column: 3, line: 3}],
                   message: "Unknown fragment \"NonExistentFragment\""
                 }
               ]

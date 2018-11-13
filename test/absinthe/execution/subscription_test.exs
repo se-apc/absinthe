@@ -7,7 +7,11 @@ defmodule Absinthe.Execution.SubscriptionTest do
     @behaviour Absinthe.Subscription.Pubsub
 
     def start_link() do
-      Registry.start_link(:unique, __MODULE__)
+      Registry.start_link(keys: :unique, name: __MODULE__)
+    end
+
+    def node_name() do
+      node()
     end
 
     def subscribe(topic) do
@@ -81,6 +85,11 @@ defmodule Absinthe.Execution.SubscriptionTest do
         config fn args, _ ->
           {:ok, topic: args[:id] || "*"}
         end
+
+        trigger :update_user,
+          topic: fn user ->
+            [user.id, "*"]
+          end
       end
 
       field :thing, :string do
@@ -95,6 +104,22 @@ defmodule Absinthe.Execution.SubscriptionTest do
               :ok,
               topic: args.client_id
             }
+        end
+      end
+
+      field :multiple_topics, :string do
+        config fn _, _ ->
+          {:ok, topic: ["topic_1", "topic_2", "topic_3"]}
+        end
+      end
+    end
+
+    mutation do
+      field :update_user, :user do
+        arg :id, non_null(:id)
+
+        resolve fn _, %{id: id}, _ ->
+          {:ok, %{id: id, name: "foo"}}
         end
       end
     end
@@ -135,6 +160,93 @@ defmodule Absinthe.Execution.SubscriptionTest do
 
   @query """
   subscription ($clientId: ID!) {
+    thing(clientId: $clientId)
+  }
+  """
+  test "can unsubscribe the current process" do
+    client_id = "abc"
+
+    assert {:ok, %{"subscribed" => topic}} =
+             run(
+               @query,
+               Schema,
+               variables: %{"clientId" => client_id},
+               context: %{pubsub: PubSub}
+             )
+
+    Absinthe.Subscription.unsubscribe(PubSub, topic)
+
+    Absinthe.Subscription.publish(PubSub, "foo", thing: client_id)
+
+    refute_receive({:broadcast, _})
+  end
+
+  @query """
+  subscription {
+    multipleTopics
+  }
+  """
+  test "schema can provide multiple topics to subscribe to" do
+    assert {:ok, %{"subscribed" => topic}} =
+             run(
+               @query,
+               Schema,
+               variables: %{},
+               context: %{pubsub: PubSub}
+             )
+
+
+    msg = %{
+             event: "subscription:data",
+             result: %{data: %{"multipleTopics" => "foo"}},
+             topic: topic
+           }
+
+    Absinthe.Subscription.publish(PubSub, "foo", multiple_topics: "topic_1")
+
+    assert_receive({:broadcast, ^msg})
+
+    Absinthe.Subscription.publish(PubSub, "foo", multiple_topics: "topic_2")
+
+    assert_receive({:broadcast, ^msg})
+
+    Absinthe.Subscription.publish(PubSub, "foo", multiple_topics: "topic_3")
+
+    assert_receive({:broadcast, ^msg})
+  end
+
+
+  @query """
+  subscription {
+    multipleTopics
+  }
+  """
+  test "unsubscription works when multiple topics are provided" do
+    assert {:ok, %{"subscribed" => topic}} =
+             run(
+               @query,
+               Schema,
+               variables: %{},
+               context: %{pubsub: PubSub}
+             )
+
+    Absinthe.Subscription.unsubscribe(PubSub, topic)
+
+    Absinthe.Subscription.publish(PubSub, "foo", multiple_topics: "topic_1")
+
+    refute_receive({:broadcast, _})
+
+    Absinthe.Subscription.publish(PubSub, "foo", multiple_topics: "topic_2")
+
+    refute_receive({:broadcast, _})
+
+    Absinthe.Subscription.publish(PubSub, "foo", multiple_topics: "topic_3")
+
+    refute_receive({:broadcast, _})
+  end
+
+  @query """
+  subscription ($clientId: ID!) {
     thing(clientId: $clientId, extra: 1)
   }
   """
@@ -144,7 +256,7 @@ defmodule Absinthe.Execution.SubscriptionTest do
              %{
                errors: [
                  %{
-                   locations: [%{column: 0, line: 2}],
+                   locations: [%{column: 30, line: 2}],
                    message:
                      "Unknown argument \"extra\" on field \"thing\" of type \"RootSubscriptionType\"."
                  }
@@ -154,12 +266,49 @@ defmodule Absinthe.Execution.SubscriptionTest do
   end
 
   @query """
+  subscription ($userId: ID!) {
+    user(id: $userId) { id name }
+  }
+  """
+  test "subscription triggers work" do
+    id = "1"
+
+    assert {:ok, %{"subscribed" => topic}} =
+             run(
+               @query,
+               Schema,
+               variables: %{"userId" => id},
+               context: %{pubsub: PubSub}
+             )
+
+    mutation = """
+    mutation ($userId: ID!) {
+      updateUser(id: $userId) { id name }
+    }
+    """
+
+    assert {:ok, %{data: _}} =
+             run(mutation, Schema,
+               variables: %{"userId" => id},
+               context: %{pubsub: PubSub}
+             )
+
+    assert_receive({:broadcast, msg})
+
+    assert %{
+             event: "subscription:data",
+             result: %{data: %{"user" => %{"id" => "1", "name" => "foo"}}},
+             topic: topic
+           } == msg
+  end
+
+  @query """
   subscription ($clientId: ID!) {
     thing(clientId: $clientId)
   }
   """
   test "can return an error tuple from the topic function" do
-    assert {:ok, %{errors: [%{locations: [%{column: 0, line: 2}], message: "unauthorized"}]}} ==
+    assert {:ok, %{errors: [%{locations: [%{column: 3, line: 2}], message: "unauthorized"}]}} ==
              run(
                @query,
                Schema,

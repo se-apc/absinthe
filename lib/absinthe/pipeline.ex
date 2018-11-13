@@ -60,8 +60,7 @@ defmodule Absinthe.Pipeline do
       Phase.Document.Validation.KnownFragmentNames,
       Phase.Document.Validation.NoUndefinedVariables,
       Phase.Document.Validation.NoUnusedVariables,
-      # TODO: uncomment in 1.5
-      # Phase.Document.Validation.NoUnusedFragments
+      Phase.Document.Validation.NoUnusedFragments,
       Phase.Document.Validation.UniqueFragmentNames,
       Phase.Document.Validation.UniqueOperationNames,
       Phase.Document.Validation.UniqueVariableNames,
@@ -109,23 +108,33 @@ defmodule Absinthe.Pipeline do
     ]
   end
 
-  @defaults [
-    adapter: Absinthe.Adapter.LanguageConventions
-  ]
-
   @spec for_schema(nil | Absinthe.Schema.t()) :: t
   @spec for_schema(nil | Absinthe.Schema.t(), Keyword.t()) :: t
-  def for_schema(prototype_schema, options \\ []) do
-    options =
-      @defaults
-      |> Keyword.merge(Keyword.put(options, :schema, prototype_schema))
-
+  def for_schema(schema, _options \\ []) do
     [
-      Phase.Parse,
-      Phase.Blueprint,
-      {Phase.Schema, options},
-      Phase.Validation.KnownTypeNames,
-      Phase.Validation.KnownDirectives
+      Phase.Schema.NormalizeReferences,
+      {Phase.Schema.Decorate, [schema: schema]},
+      Phase.Schema.TypeImports,
+      Phase.Schema.Validation.TypeNamesAreUnique,
+      Phase.Schema.Validation.TypeReferencesExist,
+      Phase.Schema.Validation.TypeNamesAreReserved,
+      # This phase is run once now because a lot of other
+      # validations aren't possible if type references are invalid.
+      Phase.Schema.Validation.Result,
+      Phase.Schema.Validation.NoCircularFieldImports,
+      Phase.Schema.FieldImports,
+      Phase.Schema.Validation.DefaultEnumValuePresent,
+      Phase.Schema.Validation.InputOuputTypesCorrectlyPlaced,
+      Phase.Schema.Validation.InterfacesMustResolveTypes,
+      Phase.Schema.Validation.ObjectInterfacesMustBeValid,
+      Phase.Schema.Validation.ObjectMustImplementInterfaces,
+      Phase.Schema.Validation.QueryTypeMustBeObject,
+      Phase.Schema.RegisterTriggers,
+      # This phase is run again now after additional validations
+      Phase.Schema.Validation.Result,
+      Phase.Schema.Build,
+      Phase.Schema.InlineFunctions,
+      {Phase.Schema.Compile, [module: schema]}
     ]
   end
 
@@ -246,7 +255,7 @@ defmodule Absinthe.Pipeline do
     beginning ++ List.wrap(additional) ++ (pipeline -- beginning)
   end
 
-  @spec reject(t, Regex.t() | (Module.t -> boolean)) :: t
+  @spec reject(t, Regex.t() | (Module.t() -> boolean)) :: t
   def reject(pipeline, %Regex{} = pattern) do
     reject(pipeline, fn phase ->
       Regex.match?(pattern, Atom.to_string(phase))

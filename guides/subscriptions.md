@@ -126,6 +126,9 @@ subscription do
     # subscription {
     #   commentAdded(repoName: "elixir-lang/elixir") { content }
     # }
+    #
+    # If needed, you can also provide a list of topics:
+    #   {:ok, topic: ["absinthe-graphql/absinthe", "elixir-lang/elixir"]}
     config fn args, _ ->
       {:ok, topic: args.repo_name}
     end
@@ -184,6 +187,13 @@ If you want to publish to this subscription manually (not using triggers in the 
 
 ```elixir
 Absinthe.Subscription.publish(MyAppWeb.Endpoint, comment, comment_added: "absinthe-graphql/absinthe")
+```
+
+If you want to subscribe to mutations from within your application, you can do:
+
+```elixir
+{:ok, %{"subscribed" => topic}} = Absinthe.run(subscription_query, MyAppWeb.Schema, context: %{pubsub: MyAppWeb.Endpoint})
+MyAppWeb.Endpoint.subscribe(topic)
 ```
 
 This guide is up to date, but incomplete. Stay tuned for more content!

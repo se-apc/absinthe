@@ -216,7 +216,7 @@ defmodule Absinthe.Middleware do
   This made it very easy to accidently break your schema if you weren't
   particularly careful with your pattern matching. Now the defaults are applied
   FIRST by absinthe, and THEN passed to `middleware/3`. Consequently, the
-  middlware list argument should always have at least one value. This is also
+  middleware list argument should always have at least one value. This is also
   why there is now the `replace_default/4` function, because it handles telling
   the difference between a field with a resolver and a field with the default.
 
@@ -277,4 +277,38 @@ defmodule Absinthe.Middleware do
   was passed to the `middleware` call that setup the middleware.
   """
   @callback call(Absinthe.Resolution.t(), term) :: Absinthe.Resolution.t()
+
+  @doc false
+  def shim(res, {object, field, middleware}) do
+    schema = res.schema
+    object = Absinthe.Schema.lookup_type(schema, object)
+    field = Map.fetch!(object.fields, field)
+
+    middleware = expand(schema, middleware, field, object)
+
+    %{res | middleware: middleware}
+  end
+
+  @doc "For testing and inspection purposes"
+  def unshim([{{__MODULE__, :shim}, {object, field, middleware}}], schema) do
+    object = Absinthe.Schema.lookup_type(schema, object)
+    field = Map.fetch!(object.fields, field)
+    expand(schema, middleware, field, object)
+  end
+
+  @doc false
+  def expand(schema, middleware, field, object) do
+    middleware
+    |> Enum.flat_map(&get_functions/1)
+    |> Absinthe.Schema.Notation.__ensure_middleware__(field, object)
+    |> schema.middleware(field, object)
+  end
+
+  defp get_functions({:ref, module, identifier}) do
+    module.__absinthe_function__(identifier, :middleware)
+  end
+
+  defp get_functions(val) do
+    List.wrap(val)
+  end
 end

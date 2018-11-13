@@ -63,8 +63,8 @@ defmodule Absinthe.Type.Interface do
           description: binary,
           fields: map,
           identifier: atom,
-          resolve_type: (any, Absinthe.Resolution.t() -> atom | nil),
           __private__: Keyword.t(),
+          definition: Module.t(),
           __reference__: Type.Reference.t()
         }
 
@@ -74,60 +74,42 @@ defmodule Absinthe.Type.Interface do
             identifier: nil,
             resolve_type: nil,
             __private__: [],
+            definition: nil,
             __reference__: nil,
-            field_imports: []
+            resolve_type: nil
 
-  def build(%{attrs: attrs}) do
-    fields =
-      (attrs[:fields] || [])
-      |> Type.Field.build()
-      |> Type.Object.handle_imports(attrs[:field_imports])
-
-    attrs = Keyword.put(attrs, :fields, fields)
-
-    quote do
-      %unquote(__MODULE__){unquote_splicing(attrs)}
-    end
-  end
+  @doc false
+  defdelegate functions, to: Absinthe.Blueprint.Schema.InterfaceTypeDefinition
 
   @spec resolve_type(Type.Interface.t(), any, Absinthe.Resolution.t()) :: Type.t() | nil
   def resolve_type(type, obj, env, opts \\ [lookup: true])
 
-  def resolve_type(
-        %{resolve_type: nil, __reference__: %{identifier: ident}},
-        obj,
-        %{schema: schema},
-        opts
-      ) do
-    implementors = Schema.implementors(schema, ident)
+  def resolve_type(interface, obj, %{schema: schema} = env, opts) do
+    implementors = Schema.implementors(schema, interface.identifier)
 
-    type_name =
-      Enum.find(implementors, fn
-        %{is_type_of: nil} ->
-          false
+    if resolver = Type.function(interface, :resolve_type) do
+      case resolver.(obj, env) do
+        nil ->
+          nil
 
-        type ->
-          type.is_type_of.(obj)
-      end)
-
-    if opts[:lookup] do
-      Absinthe.Schema.lookup_type(schema, type_name)
+        ident when is_atom(ident) ->
+          if opts[:lookup] do
+            Absinthe.Schema.lookup_type(schema, ident)
+          else
+            ident
+          end
+      end
     else
-      type_name
-    end
-  end
+      type_name =
+        Enum.find(implementors, fn type ->
+          Absinthe.Type.function(type, :is_type_of).(obj)
+        end)
 
-  def resolve_type(%{resolve_type: resolver}, obj, %{schema: schema} = env, opts) do
-    case resolver.(obj, env) do
-      nil ->
-        nil
-
-      ident when is_atom(ident) ->
-        if opts[:lookup] do
-          Absinthe.Schema.lookup_type(schema, ident)
-        else
-          ident
-        end
+      if opts[:lookup] do
+        Absinthe.Schema.lookup_type(schema, type_name)
+      else
+        type_name
+      end
     end
   end
 
@@ -147,49 +129,11 @@ defmodule Absinthe.Type.Interface do
 
   @doc false
   @spec member?(t, Type.t()) :: boolean
-  def member?(%{__reference__: %{identifier: ident}}, %{interfaces: ifaces}) do
+  def member?(%{identifier: ident}, %{interfaces: ifaces}) do
     ident in ifaces
   end
 
   def member?(_, _) do
     false
-  end
-
-  @spec implements?(Type.Interface.t(), Type.Object.t(), Type.Schema.t()) :: boolean
-  def implements?(interface, type, schema) do
-    covariant?(interface, type, schema)
-  end
-
-  defp covariant?(%wrapper{of_type: inner_type1}, %wrapper{of_type: inner_type2}, schema) do
-    covariant?(inner_type1, inner_type2, schema)
-  end
-
-  defp covariant?(%{name: name}, %{name: name}, _schema) do
-    true
-  end
-
-  defp covariant?(%Type.Interface{fields: ifields}, %{fields: type_fields}, schema) do
-    Enum.all?(ifields, fn {field_ident, ifield} ->
-      case Map.get(type_fields, field_ident) do
-        nil ->
-          false
-
-        field ->
-          covariant?(ifield.type, field.type, schema)
-      end
-    end)
-  end
-
-  defp covariant?(nil, _, _), do: false
-  defp covariant?(_, nil, _), do: false
-
-  defp covariant?(itype, type, schema) when is_atom(itype) do
-    itype = schema.__absinthe_type__(itype)
-    covariant?(itype, type, schema)
-  end
-
-  defp covariant?(itype, type, schema) when is_atom(type) do
-    type = schema.__absinthe_type__(type)
-    covariant?(itype, type, schema)
   end
 end
