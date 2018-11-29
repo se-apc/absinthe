@@ -46,6 +46,7 @@ defmodule Absinthe.Blueprint.Schema.EnumTypeDefinition do
       value = %Absinthe.Type.Enum.Value{
         name: value_def.name,
         value: value_def.value,
+        meta: value_def.meta,
         __reference__: value_def.__reference__,
         description: value_def.description,
         deprecation: value_def.deprecation
