@@ -8,7 +8,7 @@ defmodule Absinthe.Type.BuiltIns.Introspection do
 
     field :types, list_of(:__type) do
       resolve fn _, %{schema: schema} ->
-        {:ok, Absinthe.Schema.used_types(schema) ++ Absinthe.Schema.introspection_types(schema)}
+        {:ok, Absinthe.Schema.types(schema)}
       end
     end
 
@@ -77,15 +77,24 @@ defmodule Absinthe.Type.BuiltIns.Introspection do
 
   enum :__directive_location,
     values: [
-      # OPERATIONS
       :query,
       :mutation,
       :subscription,
       :field,
       :fragment_definition,
       :fragment_spread,
-      :inline_fragment
-      # TODO: Schema definitions to support Schema input
+      :inline_fragment,
+      :schema,
+      :scalar,
+      :object,
+      :field_definition,
+      :interface,
+      :union,
+      :enum,
+      :enum_value,
+      :input_object,
+      :argument_definition,
+      :input_field_definition
     ]
 
   object :__type do
@@ -326,7 +335,9 @@ defmodule Absinthe.Type.BuiltIns.Introspection do
 
       %Absinthe.Type.List{of_type: type} ->
         list_values =
-          Enum.map(value, &render_default_value(schema, adapter, type, &1))
+          value
+          |> List.wrap()
+          |> Enum.map(&render_default_value(schema, adapter, type, &1))
           |> Enum.join(", ")
 
         "[#{list_values}]"

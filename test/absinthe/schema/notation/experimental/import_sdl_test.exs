@@ -5,19 +5,19 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
   @moduletag :experimental
   @moduletag :sdl
 
-  defmodule ExtTypes do
-    use Absinthe.Schema.Notation
+  defmodule WithFeatureDirective do
+    use Absinthe.Schema.Prototype
 
-    # Extend a Post Object
-    import_sdl """
-    type User {
-      upVotes: Int
-    }
-    """
+    directive :feature do
+      arg :name, non_null(:string)
+      on [:interface]
+    end
   end
 
   defmodule Definition do
     use Absinthe.Schema
+
+    @prototype_schema WithFeatureDirective
 
     # Embedded SDL
     import_sdl """
@@ -26,15 +26,36 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
 
     type Query {
       "A list of posts"
-      posts(filter: PostFilter, reverse: Boolean): [Post]
+      posts(filterBy: PostFilter, reverse: Boolean): [Post]
       admin: User!
       droppedField: String
+      defaultsOfVariousFlavors(
+        name: String = "Foo"
+        count: Int = 3
+        average: Float = 3.14
+        category: Category = NEWS
+        category: [Category] = [NEWS]
+        valid: Boolean = false
+        complex: ComplexInput = {nested: "String"}
+      ): String
+      metaEcho: String
+      scalarEcho(input: CoolScalar): CoolScalar
+      namedThings: [Named]
+      titledThings: [Titled]
+    }
+
+    scalar CoolScalar
+
+    input ComplexInput {
+      nested: String
     }
 
     type Comment {
       author: User!
       subject: Post!
       order: Int
+      deprecatedField: String @deprecated
+      deprecatedFieldWithReason: String @deprecated(reason: "Reason")
     }
 
     enum Category {
@@ -52,8 +73,28 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
       name: String!
     }
 
+    type Human implements Named {
+      name: String!
+      age: Int!
+    }
+
+    type City implements Named {
+      name: String!
+      population: Int!
+    }
+
     interface Titled @feature(name: "bar") {
       title: String!
+    }
+
+    type Book implements Titled {
+      title: String!
+      pages: Int!
+    }
+
+    type Movie implements Titled {
+      title: String!
+      duration: Int!
     }
 
     scalar B
@@ -82,29 +123,77 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
       {:ok, Map.get(post, :title) |> String.upcase()}
     end
 
-    def decorations(%{identifier: :admin}, [%{identifier: :query} | _]) do
+    def meta_echo(_source, _args, resolution) do
+      {:ok, get_in(resolution.definition.schema_node.__private__, [:meta, :echo])}
+    end
+
+    def scalar_echo(_source, %{input: scalar}, _resolution) do
+      {:ok, scalar}
+    end
+
+    def named_things(_source, _args, _resolution) do
+      {:ok, [%{name: "Sue", age: 38}, %{name: "Portland", population: 647_000}]}
+    end
+
+    def titled_things(_source, _args, _resolution) do
+      {:ok, [%{title: "The Matrix", duration: 150}, %{title: "Origin of Species", pages: 502}]}
+    end
+
+    def hydrate(%{identifier: :admin}, [%{identifier: :query} | _]) do
       {:description, "The admin"}
     end
 
-    def decorations(%{identifier: :filter}, [%{identifier: :posts} | _]) do
+    def hydrate(%{identifier: :filter_by}, [%{identifier: :posts} | _]) do
       {:description, "A filter argument"}
     end
 
-    def decorations(%{identifier: :posts}, [%{identifier: :query} | _]) do
+    def hydrate(%{identifier: :posts}, [%{identifier: :query} | _]) do
       {:resolve, &__MODULE__.get_posts/3}
     end
 
-    def decorations(%{identifier: :user}, _ancestors) do
-      user_ext = Absinthe.Blueprint.types_by_name(ExtTypes)["User"]
-
-      {:add_fields, user_ext.fields}
+    def hydrate(%{identifier: :meta_echo}, [%{identifier: :query} | _]) do
+      [
+        {:meta, echo: "Hello"},
+        {:resolve, &__MODULE__.meta_echo/3}
+      ]
     end
 
-    def decorations(%{identifier: :query}, _ancestors) do
-      {:del_fields, "dropped_field"}
+    def hydrate(%{name: "CoolScalar"}, _) do
+      [
+        {:parse, &__MODULE__.parse_cool_scalar/1},
+        {:serialize, &__MODULE__.serialize_cool_scalar/1}
+      ]
     end
 
-    def decorations(%Absinthe.Blueprint{}, _) do
+    def hydrate(%{identifier: :scalar_echo}, [%{identifier: :query} | _]) do
+      [{:middleware, {Absinthe.Resolution, &__MODULE__.scalar_echo/3}}]
+    end
+
+    def hydrate(%{identifier: :titled}, _) do
+      [{:resolve_type, &__MODULE__.titled_resolve_type/2}]
+    end
+
+    def hydrate(%{identifier: :content}, _) do
+      [{:resolve_type, &__MODULE__.content_resolve_type/2}]
+    end
+
+    def hydrate(%{identifier: :human}, _) do
+      [{:is_type_of, &__MODULE__.human_is_type_of/1}]
+    end
+
+    def hydrate(%{identifier: :city}, _) do
+      [{:is_type_of, &__MODULE__.city_is_type_of/1}]
+    end
+
+    def hydrate(%{identifier: :named_things}, [%{identifier: :query} | _]) do
+      [{:resolve, &__MODULE__.named_things/3}]
+    end
+
+    def hydrate(%{identifier: :titled_things}, [%{identifier: :query} | _]) do
+      [{:resolve, &__MODULE__.titled_things/3}]
+    end
+
+    def hydrate(%Absinthe.Blueprint{}, _) do
       %{
         query: %{
           posts: %{
@@ -116,12 +205,37 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
             {:description, "The title, but upcased"},
             {:resolve, &__MODULE__.upcase_title/3}
           ]
-        }
+        },
+        search_result: [
+          resolve_type: &__MODULE__.search_result_resolve_type/2
+        ]
       }
     end
 
-    def decorations(_node, _ancestors) do
+    def hydrate(_node, _ancestors) do
       []
+    end
+
+    def city_is_type_of(%{population: _}), do: true
+    def city_is_type_of(_), do: false
+
+    def human_is_type_of(%{age: _}), do: true
+    def human_is_type_of(_), do: false
+
+    def titled_resolve_type(%{duration: _}, _), do: :movie
+    def titled_resolve_type(%{pages: _}, _), do: :book
+
+    def content_resolve_type(_, _), do: :comment
+
+    def search_result_resolve_type(_, _), do: :post
+
+    def parse_cool_scalar(value), do: {:ok, value}
+    def serialize_cool_scalar(%{value: value}), do: value
+  end
+
+  describe "custom prototype schema" do
+    test "is set" do
+      assert Definition.__absinthe_prototype_schema__() == WithFeatureDirective
     end
   end
 
@@ -140,8 +254,23 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
 
   describe "directives" do
     test "can be defined" do
-      assert %{name: "foo", identifier: :foo, locations: [:object, :scalar]} = lookup_compiled_directive(Definition, :foo)
-      assert %{name: "bar", identifier: :bar, locations: [:object, :scalar]} = lookup_compiled_directive(Definition, :bar)
+      assert %{name: "foo", identifier: :foo, locations: [:object, :scalar]} =
+               lookup_compiled_directive(Definition, :foo)
+
+      assert %{name: "bar", identifier: :bar, locations: [:object, :scalar]} =
+               lookup_compiled_directive(Definition, :bar)
+    end
+  end
+
+  describe "deprecations" do
+    test "can be defined without a reason" do
+      object = lookup_compiled_type(Definition, :comment)
+      assert %{deprecation: %{}} = object.fields.deprecated_field
+    end
+
+    test "can be defined with a reason" do
+      object = lookup_compiled_type(Definition, :comment)
+      assert %{deprecation: %{reason: "Reason"}} = object.fields.deprecated_field_with_reason
     end
   end
 
@@ -190,13 +319,30 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
                lookup_field(Definition, :post, :author)
     end
 
-    test "can be added by a decoration to a field" do
+    test "can be added by hydrating a field" do
       assert %{description: "The admin"} = lookup_compiled_field(Definition, :query, :admin)
     end
 
-    test "can be added by a decoration to an argument" do
+    test "can be added by hydrating an argument" do
       field = lookup_compiled_field(Definition, :query, :posts)
-      assert %{description: "A filter argument"} = field.args.filter
+      assert %{description: "A filter argument"} = field.args.filter_by
+    end
+  end
+
+  describe "union types" do
+    test "have correct type references" do
+      assert content_union = Absinthe.Schema.lookup_type(Definition, :content)
+      assert content_union.types == [:comment, :post]
+    end
+
+    test "have resolve_type via a dedicated clause" do
+      assert content_union = Absinthe.Schema.lookup_type(Definition, :content)
+      assert content_union.resolve_type
+    end
+
+    test "have resolve_type via the blueprint hydrator" do
+      assert search_union = Absinthe.Schema.lookup_type(Definition, :search_result)
+      assert search_union.resolve_type
     end
   end
 
@@ -228,7 +374,7 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
   { posts { title } }
   """
 
-  describe "execution with decoration-defined resolvers" do
+  describe "execution with hydration-defined resolvers" do
     test "works" do
       assert {:ok, %{data: %{"posts" => [%{"title" => "Foo"}, %{"title" => "Bar"}]}}} =
                Absinthe.run(@query, Definition)
@@ -238,7 +384,7 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
   @query """
   { posts { upcasedTitle } }
   """
-  describe "execution with deeply decoration-defined resolvers" do
+  describe "execution with deep hydration-defined resolvers" do
     test "works" do
       assert {:ok,
               %{data: %{"posts" => [%{"upcasedTitle" => "FOO"}, %{"upcasedTitle" => "BAR"}]}}} =
@@ -246,35 +392,223 @@ defmodule Absinthe.Schema.Notation.Experimental.ImportSdlTest do
     end
   end
 
-  describe "Absinthe.Schema.used_types/1" do
-    test "works" do
-      assert Absinthe.Schema.used_types(Definition)
+  describe "hydration" do
+    @query """
+    { metaEcho }
+    """
+    test "allowed for meta data" do
+      assert {:ok, %{data: %{"metaEcho" => "Hello"}}} = Absinthe.run(@query, Definition)
     end
-  end
 
-  @query """
-  { admin { upVotes } }
-  """
-  describe "decorator can append fields" do
-    test "works" do
-      assert {:ok, %{data: %{"admin" => %{"upVotes" => 99}}}} =
-               Absinthe.run(@query, Definition, root_value: %{admin: %{up_votes: 99}})
+    @query """
+    { scalarEcho(input: "Hey there") }
+    """
+    test "enables scalar creation" do
+      assert {:ok, %{data: %{"scalarEcho" => "Hey there"}}} = Absinthe.run(@query, Definition)
     end
-  end
 
-  @query """
-  { droppedField }
-  """
-  test "decorator can remove fields" do
-    assert {:ok,
-            %{
-              errors: [
-                %{
-                  locations: [%{column: 3, line: 1}],
-                  message: "Cannot query field \"droppedField\" on type \"Query\"."
+    @query """
+    {
+      namedThings {
+        __typename
+        name
+        ... on Human { age }
+        ... on City { population }
+      }
+    }
+    """
+    test "interface via is_type_of" do
+      assert {:ok,
+              %{
+                data: %{
+                  "namedThings" => [
+                    %{"__typename" => "Human", "name" => "Sue", "age" => 38},
+                    %{"__typename" => "City", "name" => "Portland", "population" => 647_000}
+                  ]
                 }
-              ]
-            }} =
-             Absinthe.run(@query, Definition, root_value: %{dropped_field: "Should be ignored"})
+              }} = Absinthe.run(@query, Definition)
+    end
+
+    @query """
+    {
+      titledThings {
+        __typename
+        title
+        ... on Book { pages }
+        ... on Movie { duration }
+      }
+    }
+    """
+    test "interface via resolve_type" do
+      assert {:ok,
+              %{
+                data: %{
+                  "titledThings" => [
+                    %{"__typename" => "Movie", "title" => "The Matrix", "duration" => 150},
+                    %{"__typename" => "Book", "title" => "Origin of Species", "pages" => 502}
+                  ]
+                }
+              }} = Absinthe.run(@query, Definition)
+    end
+  end
+
+  @query """
+  { posts(filterBy: {name: "foo"}) { upcasedTitle } }
+  """
+  describe "execution with multi word args" do
+    test "works" do
+      assert {:ok,
+              %{data: %{"posts" => [%{"upcasedTitle" => "FOO"}, %{"upcasedTitle" => "BAR"}]}}} =
+               Absinthe.run(@query, Definition)
+    end
+  end
+
+  describe "Absinthe.Schema.referenced_types/1" do
+    test "works" do
+      assert Absinthe.Schema.referenced_types(Definition)
+    end
+  end
+
+  defmodule FakerSchema do
+    use Absinthe.Schema
+
+    query do
+      field :hello, :string
+    end
+
+    import_sdl path: "test/support/fixtures/fake_definition.graphql"
+  end
+
+  describe "graphql-faker schema" do
+    test "defines the correct types" do
+      type_names =
+        FakerSchema.__absinthe_types__()
+        |> Map.values()
+
+      for type <-
+            ~w(fake__Locale fake__Types fake__imageCategory fake__loremSize fake__color fake__options examples__JSON) do
+        assert type in type_names
+      end
+    end
+
+    test "defines the correct directives" do
+      directive_names =
+        FakerSchema.__absinthe_directives__()
+        |> Map.values()
+
+      for directive <- ~w(examples) do
+        assert directive in directive_names
+      end
+    end
+
+    test "default values" do
+      type = Absinthe.Schema.lookup_type(FakerSchema, :fake__options)
+      assert %{red255: _, blue255: _, green255: _} = type.fields.base_color.default_value
+
+      type = Absinthe.Schema.lookup_type(FakerSchema, :fake__color)
+      assert type.fields.red255.default_value == 0
+      assert type.fields.green255.default_value == 0
+      assert type.fields.blue255.default_value == 0
+    end
+  end
+
+  test "Keyword extend not yet supported" do
+    schema = """
+    defmodule KeywordExtend do
+      use Absinthe.Schema
+
+      import_sdl "
+      type Movie {
+        title: String!
+      }
+
+      extend type Movie {
+        year: Int
+      }
+      "
+    end
+    """
+
+    error = ~r/Keyword `extend` is not yet supported/
+
+    assert_raise(Absinthe.Schema.Notation.Error, error, fn ->
+      Code.eval_string(schema)
+    end)
+  end
+
+  test "Validate known directive arguments in SDL schema" do
+    schema = """
+    defmodule SchemaWithDirectivesWithNestedArgs do
+      use Absinthe.Schema
+
+      defmodule Directives do
+        use Absinthe.Schema.Prototype
+
+        directive :some_directive do
+          on [:field_definition]
+        end
+      end
+
+      @prototype_schema Directives
+
+      "
+      type Widget {
+        name: String @some_directive(a: { b: {} })
+      }
+
+      type Query {
+        widgets: [Widget!]
+      }
+      "
+      |> import_sdl
+    end
+    """
+
+    error = ~r/Unknown argument "a" on directive "@some_directive"./
+
+    assert_raise(Absinthe.Schema.Error, error, fn ->
+      Code.eval_string(schema)
+    end)
+  end
+
+  def handle_event(event, measurements, metadata, config) do
+    send(self(), {event, measurements, metadata, config})
+  end
+
+  describe "telemetry" do
+    setup context do
+      :telemetry.attach_many(
+        context.test,
+        [
+          [:absinthe, :resolve, :field, :start],
+          [:absinthe, :resolve, :field, :stop],
+          [:absinthe, :execute, :operation, :start],
+          [:absinthe, :execute, :operation, :stop]
+        ],
+        &__MODULE__.handle_event/4,
+        %{}
+      )
+
+      on_exit(fn ->
+        :telemetry.detach(context.test)
+      end)
+
+      :ok
+    end
+
+    test "executes on SDL defined schemas" do
+      assert {:ok,
+              %{data: %{"posts" => [%{"upcasedTitle" => "FOO"}, %{"upcasedTitle" => "BAR"}]}}} =
+               Absinthe.run(@query, Definition)
+
+      assert_receive {[:absinthe, :execute, :operation, :start], _, %{id: id}, _config}
+      assert_receive {[:absinthe, :execute, :operation, :stop], measurements, %{id: ^id}, _config}
+
+      assert_receive {[:absinthe, :resolve, :field, :start], measurements,
+                      %{resolution: %{definition: %{name: "posts"}}}, config}
+
+      assert_receive {[:absinthe, :resolve, :field, :stop], measurements,
+                      %{resolution: %{definition: %{name: "posts"}}}, config}
+    end
   end
 end

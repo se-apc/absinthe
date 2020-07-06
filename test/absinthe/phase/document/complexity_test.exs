@@ -57,6 +57,10 @@ defmodule Absinthe.Phase.Document.ComplexityTest do
       field :nested, :foo do
         complexity 1
       end
+
+      field :nested_heavy, :foo do
+        complexity 100
+      end
     end
 
     defp penalize_guests(penalty) do
@@ -286,6 +290,41 @@ defmodule Absinthe.Phase.Document.ComplexityTest do
              ]
     end
 
+    test "errors when inline fragment is too complex" do
+      doc = """
+      query ComplexityInlineFrag {
+        unionComplexity {
+          ... on Quux {
+            ...QuuxFields
+          }
+        }
+      }
+      fragment QuuxFields on Quux {
+        nested_heavy {
+          bar
+        }
+      }
+      """
+
+      assert {:error, result, _} =
+               run_phase(
+                 doc,
+                 operation_name: "ComplexityInlineFrag",
+                 variables: %{},
+                 max_complexity: 1,
+                 schema: Absinthe.Fixtures.ContactSchema
+               )
+
+      errors = result.execution.validation_errors |> Enum.map(& &1.message)
+
+      assert errors == [
+               "Spread QuuxFields is too complex: complexity is 100 and maximum is 1",
+               "Inline Fragment is too complex: complexity is 100 and maximum is 1",
+               "Field unionComplexity is too complex: complexity is 101 and maximum is 1",
+               "Operation ComplexityInlineFrag is too complex: complexity is 101 and maximum is 1"
+             ]
+    end
+
     test "skips analysis when disabled" do
       doc = """
       query ComplexitySkip {
@@ -340,6 +379,39 @@ defmodule Absinthe.Phase.Document.ComplexityTest do
                  variables: %{},
                  analyze_complexity: true
                )
+    end
+
+    test "__typename doesn't increase complexity" do
+      doc_with = """
+      query TypenameComplexity {
+        fooComplexity(limit: 3) {
+          bar
+          __typename
+        }
+      }
+      """
+
+      doc_without = """
+      query TypenameComplexity {
+        fooComplexity(limit: 3) {
+          bar
+        }
+      }
+      """
+
+      assert {:ok, result_with, _} =
+               run_phase(doc_with, operation_name: "TypenameComplexity", variables: %{})
+
+      op_with = result_with.operations |> Enum.find(&(&1.name == "TypenameComplexity"))
+      complexity_with = op_with.complexity
+
+      assert {:ok, result_without, _} =
+               run_phase(doc_without, operation_name: "TypenameComplexity", variables: %{})
+
+      op_without = result_without.operations |> Enum.find(&(&1.name == "TypenameComplexity"))
+      complexity_without = op_without.complexity
+
+      assert complexity_with == complexity_without
     end
   end
 end

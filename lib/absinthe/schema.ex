@@ -9,7 +9,7 @@ defmodule Absinthe.Schema do
 
   ## Custom Schema Manipulation (in progress)
   In Absinthe 1.5 schemas are built using the same process by which queries are
-  executed. All the fancy macros build up an intermediary tree of structs in the
+  executed. All the macros in this module and in `Notation` build up an intermediary tree of structs in the
   `%Absinthe.Blueprint{}` namespace, which we generally call "Blueprint structs".
 
   At the top you've got a `%Blueprint{}` struct which holds onto some schema
@@ -67,7 +67,7 @@ defmodule Absinthe.Schema do
       Pipeline.insert_after(pipeline, Phase.Schema.TypeImports, __MODULE__)
     end
 
-    # Here's the blueprint of the schema, let's do whatever we want with it.
+    # Here's the blueprint of the schema, do whatever you want with it.
     def run(blueprint, _) do
       {:ok, blueprint}
     end
@@ -92,27 +92,29 @@ defmodule Absinthe.Schema do
   ```
   """
 
-  defmacro __using__(_opt) do
+  defmacro __using__(opts) do
     Module.register_attribute(__CALLER__.module, :pipeline_modifier,
       accumulate: true,
       persist: true
     )
 
+    Module.register_attribute(__CALLER__.module, :prototype_schema, persist: true)
+
     quote do
-      use Absinthe.Schema.Notation
+      use Absinthe.Schema.Notation, unquote(opts)
       import unquote(__MODULE__), only: :macros
 
       @after_compile unquote(__MODULE__)
+      @before_compile unquote(__MODULE__)
+      @prototype_schema Absinthe.Schema.Prototype
 
-      defdelegate __absinthe_type__(name), to: __MODULE__.Compiled
-      defdelegate __absinthe_directive__(name), to: __MODULE__.Compiled
-      defdelegate __absinthe_types__(), to: __MODULE__.Compiled
-      defdelegate __absinthe_directives__(), to: __MODULE__.Compiled
-      defdelegate __absinthe_interface_implementors__(), to: __MODULE__.Compiled
+      @schema_provider Absinthe.Schema.Compiled
 
       def __absinthe_lookup__(name) do
         __absinthe_type__(name)
       end
+
+      @behaviour Absinthe.Schema
 
       @doc false
       def middleware(middleware, _field, _object) do
@@ -130,12 +132,20 @@ defmodule Absinthe.Schema do
       end
 
       @doc false
-      def decorations(node, ancestors) do
+      def hydrate(_node, _ancestors) do
         []
       end
 
-      defoverridable(context: 1, middleware: 3, plugins: 0, decorations: 2)
+      defoverridable(context: 1, middleware: 3, plugins: 0, hydrate: 2)
     end
+  end
+
+  def child_spec(schema) do
+    %{
+      id: {__MODULE__, schema},
+      start: {__MODULE__.Manager, :start_link, [schema]},
+      type: :worker
+    }
   end
 
   @object_type Absinthe.Blueprint.Schema.ObjectTypeDefinition
@@ -191,7 +201,7 @@ defmodule Absinthe.Schema do
   outlines what data they want to receive in the event of particular updates.
 
   For a full walk through of how to setup your project with subscriptions and
-  Phoenix see the Absinthe.Phoenix project moduledoc.
+  `Phoenix` see the `Absinthe.Phoenix` project moduledoc.
 
   When you push a mutation, you can have selections on that mutation result
   to get back data you need, IE
@@ -284,19 +294,67 @@ defmodule Absinthe.Schema do
     Absinthe.Schema.Notation.record!(env, @object_type, :subscription, attrs, block)
   end
 
+  defmacro __before_compile__(_) do
+    quote do
+      @doc false
+      def __absinthe_pipeline_modifiers__ do
+        [@schema_provider] ++ @pipeline_modifier
+      end
+
+      def __absinthe_schema_provider__ do
+        @schema_provider
+      end
+
+      def __absinthe_type__(name) do
+        @schema_provider.__absinthe_type__(__MODULE__, name)
+      end
+
+      def __absinthe_directive__(name) do
+        @schema_provider.__absinthe_directive__(__MODULE__, name)
+      end
+
+      def __absinthe_types__() do
+        @schema_provider.__absinthe_types__(__MODULE__)
+      end
+
+      def __absinthe_types__(group) do
+        @schema_provider.__absinthe_types__(__MODULE__, group)
+      end
+
+      def __absinthe_directives__() do
+        @schema_provider.__absinthe_directives__(__MODULE__)
+      end
+
+      def __absinthe_interface_implementors__() do
+        @schema_provider.__absinthe_interface_implementors__(__MODULE__)
+      end
+
+      def __absinthe_prototype_schema__() do
+        @prototype_schema
+      end
+    end
+  end
+
+  @spec apply_modifiers(Absinthe.Pipeline.t(), t) :: Absinthe.Pipeline.t()
+  def apply_modifiers(pipeline, schema) do
+    Enum.reduce(schema.__absinthe_pipeline_modifiers__, pipeline, fn
+      {module, function}, pipeline ->
+        apply(module, function, [pipeline])
+
+      module, pipeline ->
+        module.pipeline(pipeline)
+    end)
+  end
+
   def __after_compile__(env, _) do
-    pipeline = Absinthe.Pipeline.for_schema(env.module)
+    prototype_schema =
+      env.module
+      |> Module.get_attribute(:prototype_schema)
 
     pipeline =
       env.module
-      |> Module.get_attribute(:pipeline_modifier)
-      |> Enum.reduce(pipeline, fn
-        {module, function}, pipeline ->
-          apply(module, function, [pipeline])
-
-        module, pipeline ->
-          module.pipeline(pipeline)
-      end)
+      |> Absinthe.Pipeline.for_schema(prototype_schema: prototype_schema)
+      |> apply_modifiers(env.module)
 
     env.module.__absinthe_blueprint__
     |> Absinthe.Pipeline.run(pipeline)
@@ -325,10 +383,12 @@ defmodule Absinthe.Schema do
   end
 
   @doc """
-  Replace the default middleware
+  Replace the default middleware.
 
   ## Examples
+
   Replace the default for all fields with a string lookup instead of an atom lookup:
+
   ```
   def middleware(middleware, field, object) do
     new_middleware = {Absinthe.Middleware.MapGet, to_string(field.identifier)}
@@ -348,6 +408,120 @@ defmodule Absinthe.Schema do
       end
     end)
   end
+
+  @doc """
+  Used to define the list of plugins to run before and after resolution.
+
+  Plugins are modules that implement the `Absinthe.Plugin` behaviour. These modules
+  have the opportunity to run callbacks before and after the resolution of the entire
+  document, and have access to the resolution accumulator.
+
+  Plugins must be specified by the schema, so that Absinthe can make sure they are
+  all given a chance to run prior to resolution.
+  """
+  @callback plugins() :: [Absinthe.Plugin.t()]
+
+  @doc """
+  Used to apply middleware on all or a group of fields based on pattern matching.
+
+  It is passed the existing middleware for a field, the field itself, and the object
+  that the field is a part of.
+
+  ## Examples
+
+  Adding a `HandleChangesetError` middleware only to mutations:
+
+  ```
+  # if it's a field for the mutation object, add this middleware to the end
+  def middleware(middleware, _field, %{identifier: :mutation}) do
+    middleware ++ [MyAppWeb.Middleware.HandleChangesetErrors]
+  end
+
+  # if it's any other object keep things as is
+  def middleware(middleware, _field, _object), do: middleware
+  ```
+  """
+  @callback middleware([Absinthe.Middleware.spec(), ...], Type.Field.t(), Type.Object.t()) :: [
+              Absinthe.Middleware.spec(),
+              ...
+            ]
+
+  @doc """
+  Used to set some values in the context that it may need in order to run.
+
+  ## Examples
+
+  Setup dataloader:
+
+  ```
+  def context(context) do
+    loader =
+      Dataloader.new
+      |> Dataloader.add_source(Blog, Blog.data())
+
+      Map.put(context, :loader, loader)
+  end
+  ```
+  """
+  @callback context(map) :: map
+
+  @doc """
+  Used to hydrate the schema with dynamic attributes.
+
+  While this is normally used to add resolvers, etc, to schemas
+  defined using `import_sdl/1` and `import_sdl2`, it can also be
+  used in schemas defined using other macros.
+
+  The function is passed the blueprint definition node as the first
+  argument and its ancestors in a list (with its parent node as the
+  head) as its second argument.
+
+  See the `Absinthe.Phase.Schema.Hydrate` implementation of
+  `Absinthe.Schema.Hydrator` callbacks to see what hydration
+  values can be returned.
+
+  ## Examples
+
+  Add a resolver for a field:
+
+  ```
+  def hydrate(%Absinthe.Blueprint.Schema.FieldDefinition{identifier: :health}, [%Absinthe.Blueprint.Schema.ObjectTypeDefinition{identifier: :query} | _]) do
+    {:resolve, &__MODULE__.health/3}
+  end
+
+  # Resolver implementation:
+  def health(_, _, _), do: {:ok, "alive!"}
+  ```
+
+  Note that the values provided must be macro-escapable; notably, anonymous functions cannot
+  be used.
+
+  You can, of course, omit the struct names for brevity:
+
+  ```
+  def hydrate(%{identifier: :health}, [%{identifier: :query} | _]) do
+    {:resolve, &__MODULE__.health/3}
+  end
+  ```
+
+  Add a description to a type:
+
+  ```
+  def hydrate(%Absinthe.Blueprint.Schema.ObjectTypeDefinition{identifier: :user}, _) do
+    {:description, "A user"}
+  end
+  ```
+
+  If you define `hydrate/2`, don't forget to include a fallback, e.g.:
+
+  ```
+  def hydrate(_node, _ancestors), do: []
+  ```
+  """
+  @callback hydrate(
+              node :: Absinthe.Blueprint.Schema.t(),
+              ancestors :: [Absinthe.Blueprint.Schema.t()]
+            ) :: Absinthe.Schema.Hydrator.hydration()
 
   def lookup_directive(schema, name) do
     schema.__absinthe_directive__(name)
@@ -396,15 +570,19 @@ defmodule Absinthe.Schema do
   @doc """
   Get all types that are used by an operation
   """
+  @deprecated "Use Absinthe.Schema.referenced_types/1 instead"
   @spec used_types(t) :: [Type.t()]
   def used_types(schema) do
-    [:query, :mutation, :subscription]
-    |> Enum.map(&lookup_type(schema, &1))
-    |> Enum.concat(directives(schema))
-    |> Enum.filter(&(!is_nil(&1)))
-    |> Enum.flat_map(&Type.referenced_types(&1, schema))
-    |> MapSet.new()
-    |> Enum.map(&Schema.lookup_type(schema, &1))
+    referenced_types(schema)
+  end
+
+  @doc """
+  Get all types that are referenced by an operation
+  """
+  @spec referenced_types(t) :: [Type.t()]
+  def referenced_types(schema) do
+    schema
+    |> Schema.types()
     |> Enum.filter(&(!Type.introspection?(&1)))
   end
 
@@ -416,6 +594,34 @@ defmodule Absinthe.Schema do
     schema.__absinthe_directives__
     |> Map.keys()
     |> Enum.map(&lookup_directive(schema, &1))
+  end
+
+  @doc """
+  Converts a schema to an SDL string
+
+  Per the spec, only types that are actually referenced directly or transitively from
+  the root query, subscription, or mutation objects are included.
+
+  ## Example
+
+      Absinthe.Schema.to_sdl(MyAppWeb.Schema)
+      "schema {
+        query {...}
+      }"
+  """
+  @spec to_sdl(schema :: t) :: String.t()
+  def to_sdl(schema) do
+    pipeline =
+      schema
+      |> Absinthe.Pipeline.for_schema()
+      |> Absinthe.Pipeline.upto({Absinthe.Phase.Schema.Validation.Result, pass: :final})
+      |> apply_modifiers(schema)
+
+    # we can be assertive here, since this same pipeline was already used to
+    # successfully compile the schema.
+    {:ok, bp, _} = Absinthe.Pipeline.run(schema.__absinthe_blueprint__, pipeline)
+
+    inspect(bp, pretty: true)
   end
 
   @doc """

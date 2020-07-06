@@ -28,7 +28,11 @@ defmodule Absinthe.Phase.Subscription.SubscribeSelf do
       for field_key <- field_keys,
           do: Absinthe.Subscription.subscribe(pubsub, field_key, subscription_id, blueprint)
 
-      {:replace, blueprint, [{Phase.Subscription.Result, topic: subscription_id}]}
+      {:replace, blueprint,
+       [
+         {Phase.Subscription.Result, topic: subscription_id},
+         {Phase.Telemetry, Keyword.put(options, :event, [:execute, :operation, :stop])}
+       ]}
     else
       {:error, error} ->
         blueprint = update_in(blueprint.execution.validation_errors, &[error | &1])
@@ -149,7 +153,7 @@ defmodule Absinthe.Phase.Subscription.SubscribeSelf do
     case config[:document_id] do
       nil ->
         binary =
-          {blueprint.input, options[:variables]}
+          {blueprint.source || blueprint.input, options[:variables] || %{}}
           |> :erlang.term_to_binary()
 
         :crypto.hash(:sha256, binary)

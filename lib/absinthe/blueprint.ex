@@ -14,27 +14,36 @@ defmodule Absinthe.Blueprint do
             name: nil,
             schema_definitions: [],
             schema: nil,
+            prototype_schema: nil,
             adapter: nil,
+            initial_phases: [],
             # Added by phases
+            telemetry: %{},
             flags: %{},
             errors: [],
             input: nil,
+            source: nil,
             execution: %Blueprint.Execution{},
             result: %{}
 
   @type t :: %__MODULE__{
           operations: [Blueprint.Document.Operation.t()],
-          schema_definitions: [Blueprint.Schema.t()],
+          schema_definitions: [Blueprint.Schema.SchemaDefinition.t()],
           directives: [Blueprint.Schema.DirectiveDefinition.t()],
           name: nil | String.t(),
           fragments: [Blueprint.Document.Fragment.Named.t()],
           schema: nil | Absinthe.Schema.t(),
+          prototype_schema: nil | Absinthe.Schema.t(),
           adapter: nil | Absinthe.Adapter.t(),
           # Added by phases
+          telemetry: map,
           errors: [Absinthe.Phase.Error.t()],
           flags: flags_t,
+          input: nil | Absinthe.Language.Document.t(),
+          source: nil | String.t() | Absinthe.Language.Source.t(),
           execution: Blueprint.Execution.t(),
-          result: result_t
+          result: result_t,
+          initial_phases: [Absinthe.Phase.t()]
         }
 
   @type result_t :: %{
@@ -44,7 +53,7 @@ defmodule Absinthe.Blueprint do
         }
 
   @type node_t ::
-          Blueprint.t()
+          t()
           | Blueprint.Directive.t()
           | Blueprint.Document.t()
           | Blueprint.Schema.t()
@@ -188,14 +197,14 @@ defmodule Absinthe.Blueprint do
   end
 
   def find_field(%{fields: fields}, name) do
-    Enum.find(fields, fn field = %{name: field_name} -> field_name == name end)
+    Enum.find(fields, fn %{name: field_name} -> field_name == name end)
   end
 
   @doc """
   Index the types by their name
   """
   def types_by_name(blueprint = %Blueprint{}) do
-    for schema_def = %{type_definitions: type_defs} <- blueprint.schema_definitions,
+    for %{type_definitions: type_defs} <- blueprint.schema_definitions,
         type_def <- type_defs,
         into: %{} do
       {type_def.name, type_def}
@@ -204,5 +213,10 @@ defmodule Absinthe.Blueprint do
 
   def types_by_name(module) when is_atom(module) do
     types_by_name(module.__absinthe_blueprint__)
+  end
+
+  defimpl Inspect do
+    defdelegate inspect(term, options),
+      to: Absinthe.Schema.Notation.SDL.Render
   end
 end

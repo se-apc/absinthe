@@ -166,6 +166,7 @@ defmodule Absinthe.Phase.Document.Execution.Resolution do
   end
 
   defp do_resolve_fields([field | fields], res, source, parent_type, path, acc) do
+    field = %{field | parent_type: parent_type}
     {result, res} = resolve_field(field, res, source, parent_type, [field | path])
     do_resolve_fields(fields, res, source, parent_type, path, [result | acc])
   end
@@ -280,8 +281,8 @@ defmodule Absinthe.Phase.Document.Execution.Resolution do
     |> propagate_null_trimming
   end
 
-  defp maybe_add_non_null_error(errors, nil, %Type.NonNull{}) do
-    ["Cannot return null for non-nullable field" | errors]
+  defp maybe_add_non_null_error([], nil, %Type.NonNull{}) do
+    ["Cannot return null for non-nullable field"]
   end
 
   defp maybe_add_non_null_error(errors, _, _) do
@@ -353,8 +354,6 @@ defmodule Absinthe.Phase.Document.Execution.Resolution do
     false
   end
 
-  # defp maybe_add_non_null_error(errors, nil, %)
-
   defp add_errors(result, errors, fun) do
     Enum.reduce(errors, result, fun)
   end
@@ -365,7 +364,10 @@ defmodule Absinthe.Phase.Document.Execution.Resolution do
         raise Absinthe.Resolution.result_error(error_value, bp_field, source)
 
       {[message: message, path: error_path], extra} ->
-        put_error(result, error(bp_field, message, Enum.reverse(error_path) ++ path, Map.new(extra)))
+        put_error(
+          result,
+          error(bp_field, message, Enum.reverse(error_path) ++ path, Map.new(extra))
+        )
 
       {[message: message], extra} ->
         put_error(result, error(bp_field, message, path, Map.new(extra)))

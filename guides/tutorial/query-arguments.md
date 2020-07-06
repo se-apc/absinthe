@@ -261,8 +261,8 @@ with the query.
 
 It should look something like this:
 
-<img style="box-shadow: 0 0 6px #ccc;" src="assets/tutorial/graphiql_user_posts.png" alt=""/>
+<img style="box-shadow: 0 0 6px #ccc;" src="/guides/assets/tutorial/graphiql_user_posts.png" alt=""/>
 
 ## Next Step
 
-Next up, we look at how to modify our data using [mutations](mutations.html).
+Next up, we look at how to modify our data using [mutations](mutations.md).

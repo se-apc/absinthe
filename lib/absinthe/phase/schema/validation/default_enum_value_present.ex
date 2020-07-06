@@ -25,7 +25,7 @@ defmodule Absinthe.Phase.Schema.Validation.DefaultEnumValuePresent do
     node
   end
 
-  def validate_defaults(%{default_value: default, type: type} = node, enums) do
+  def validate_defaults(%{default_value: default_value, type: type} = node, enums) do
     type = Blueprint.TypeReference.unwrap(type)
 
     case Map.fetch(enums, type) do
@@ -33,16 +33,18 @@ defmodule Absinthe.Phase.Schema.Validation.DefaultEnumValuePresent do
         values = Enum.map(enum.values, & &1.value)
         value_list = Enum.map(values, &"\n * #{inspect(&1)}")
 
-        if not (default in values) do
-          detail = %{
-            value_list: value_list,
-            type: type,
-            default_value: default
-          }
+        case value_conforms_to_enum(node.type, default_value, values) do
+          {:error, value} ->
+            detail = %{
+              value_list: value_list,
+              type: type,
+              default_value: value
+            }
 
-          node |> put_error(error(node, detail))
-        else
-          node
+            node |> put_error(error(node, detail))
+
+          {:ok, _} ->
+            node
         end
 
       _ ->
@@ -52,6 +54,25 @@ defmodule Absinthe.Phase.Schema.Validation.DefaultEnumValuePresent do
 
   def validate_defaults(node, _) do
     node
+  end
+
+  defp value_conforms_to_enum(%Blueprint.TypeReference.List{of_type: of_type}, value, enum_values)
+       when is_list(value) do
+    value
+    |> Enum.map(&value_conforms_to_enum(of_type, &1, enum_values))
+    |> Enum.find({:ok, value}, &match?({:error, _}, &1))
+  end
+
+  defp value_conforms_to_enum(%_{of_type: of_type}, value, enum_values) do
+    value_conforms_to_enum(of_type, value, enum_values)
+  end
+
+  defp value_conforms_to_enum(_, value, enum_values) do
+    if value in enum_values do
+      {:ok, value}
+    else
+      {:error, value}
+    end
   end
 
   defp error(node, data) do
@@ -69,7 +90,7 @@ defmodule Absinthe.Phase.Schema.Validation.DefaultEnumValuePresent do
     """
     The default_value for an enum must be present in the enum values.
 
-    Could not use default value of "#{default_value}" for #{inspect(type)}.
+    Could not use default value of `#{inspect(default_value)}` for #{inspect(type)}.
 
     Valid values are:
     #{value_list}

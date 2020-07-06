@@ -1,14 +1,21 @@
 defmodule Absinthe.Fixtures.ArgumentsSchema do
   use Absinthe.Schema
+  use Absinthe.Fixture
 
   @res %{
-    true => "YES",
-    false => "NO"
+    true: "YES",
+    false: "NO"
   }
 
   scalar :input_name do
     parse fn %{value: value} -> {:ok, %{first_name: value}} end
     serialize fn %{first_name: name} -> name end
+  end
+
+  scalar :input_name_raising do
+    parse fn %{__struct__: struct} ->
+      raise "inputNameRaising scalar parse was called for #{struct}"
+    end
   end
 
   scalar :name do
@@ -138,6 +145,10 @@ defmodule Absinthe.Fixtures.ArgumentsSchema do
         %{name: %{first_name: name}}, _ -> {:ok, name}
         args, _ -> {:error, "Got #{inspect(args)} instead"}
       end
+    end
+
+    field :raising_thing, :string do
+      arg :name, :input_name_raising
     end
   end
 end
