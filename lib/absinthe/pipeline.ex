@@ -44,6 +44,8 @@ defmodule Absinthe.Pipeline do
     options = options(Keyword.put(options, :schema, schema))
 
     [
+      Phase.Init,
+      {Phase.Telemetry, Keyword.put(options, :event, [:execute, :operation, :start])},
       # Parse Document
       {Phase.Parse, options},
       # Convert to Blueprint
@@ -56,7 +58,7 @@ defmodule Absinthe.Pipeline do
       # Validate Document Structure
       {Phase.Document.Validation.NoFragmentCycles, options},
       Phase.Document.Validation.LoneAnonymousOperation,
-      Phase.Document.Validation.SelectedCurrentOperation,
+      {Phase.Document.Validation.SelectedCurrentOperation, options},
       Phase.Document.Validation.KnownFragmentNames,
       Phase.Document.Validation.NoUndefinedVariables,
       Phase.Document.Validation.NoUnusedVariables,
@@ -73,6 +75,7 @@ defmodule Absinthe.Pipeline do
       {Phase.Schema, options},
       # Ensure Types
       Phase.Validation.KnownTypeNames,
+      Phase.Document.Arguments.VariableTypesMatch,
       # Process Arguments
       Phase.Document.Arguments.CoerceEnums,
       Phase.Document.Arguments.CoerceLists,
@@ -81,7 +84,7 @@ defmodule Absinthe.Pipeline do
       Phase.Document.MissingLiterals,
       Phase.Document.Arguments.FlagInvalid,
       # Validate Full Document
-      Phase.Validation.KnownDirectives,
+      Phase.Document.Validation.KnownDirectives,
       Phase.Document.Validation.ScalarLeafs,
       Phase.Document.Validation.VariablesAreInputTypes,
       Phase.Document.Validation.ArgumentsOfCorrectType,
@@ -104,40 +107,56 @@ defmodule Absinthe.Pipeline do
       {Phase.Subscription.SubscribeSelf, options},
       {Phase.Document.Execution.Resolution, options},
       # Format Result
-      Phase.Document.Result
+      Phase.Document.Result,
+      {Phase.Telemetry, Keyword.put(options, :event, [:execute, :operation, :stop])}
     ]
   end
 
+  @default_prototype_schema Absinthe.Schema.Prototype
+
   @spec for_schema(nil | Absinthe.Schema.t()) :: t
   @spec for_schema(nil | Absinthe.Schema.t(), Keyword.t()) :: t
-  def for_schema(schema, _options \\ []) do
+  def for_schema(schema, options \\ []) do
+    options =
+      options
+      |> Enum.reject(fn {_, v} -> is_nil(v) end)
+      |> Keyword.put(:schema, schema)
+      |> Keyword.put_new(:prototype_schema, @default_prototype_schema)
+
     [
       Phase.Schema.TypeImports,
+      Phase.Schema.ApplyDeclaration,
       Phase.Schema.Introspection,
-      {Phase.Schema.Decorate, [schema: schema]},
-      Phase.Schema.NormalizeReferences,
+      {Phase.Schema.Hydrate, options},
+      Phase.Schema.Arguments.Normalize,
+      {Phase.Schema, options},
       Phase.Schema.Validation.TypeNamesAreUnique,
       Phase.Schema.Validation.TypeReferencesExist,
       Phase.Schema.Validation.TypeNamesAreReserved,
       # This phase is run once now because a lot of other
       # validations aren't possible if type references are invalid.
       Phase.Schema.Validation.NoCircularFieldImports,
-      Phase.Schema.Validation.Result,
+      {Phase.Schema.Validation.Result, pass: :initial},
       Phase.Schema.FieldImports,
-      # This will be needed eventually to support directives
-      # {Phase.Schema, [schema: schema]},
+      Phase.Schema.Validation.KnownDirectives,
+      Phase.Document.Validation.KnownArgumentNames,
+      {Phase.Schema.Arguments.Parse, options},
+      Phase.Schema.Arguments.Data,
+      Phase.Schema.Directives,
       Phase.Schema.Validation.DefaultEnumValuePresent,
-      Phase.Schema.Validation.InputOuputTypesCorrectlyPlaced,
+      Phase.Schema.Validation.InputOutputTypesCorrectlyPlaced,
       Phase.Schema.Validation.InterfacesMustResolveTypes,
       Phase.Schema.Validation.ObjectInterfacesMustBeValid,
       Phase.Schema.Validation.ObjectMustImplementInterfaces,
       Phase.Schema.Validation.QueryTypeMustBeObject,
+      Phase.Schema.Validation.NamesMustBeValid,
       Phase.Schema.RegisterTriggers,
+      Phase.Schema.MarkReferenced,
       # This phase is run again now after additional validations
-      Phase.Schema.Validation.Result,
+      {Phase.Schema.Validation.Result, pass: :final},
       Phase.Schema.Build,
       Phase.Schema.InlineFunctions,
-      {Phase.Schema.Compile, [module: schema]}
+      {Phase.Schema.Compile, options}
     ]
   end
 
@@ -149,7 +168,7 @@ defmodule Absinthe.Pipeline do
       iex> Pipeline.before([A, B, C], B)
       [A]
   """
-  @spec before(t, atom) :: t
+  @spec before(t, phase_config_t) :: t
   def before(pipeline, phase) do
     result =
       List.flatten(pipeline)
@@ -219,12 +238,10 @@ defmodule Absinthe.Pipeline do
               replacement
 
             {_, opts} ->
-              case is_atom(replacement) do
-                true ->
-                  {replacement, opts}
-
-                false ->
-                  replacement
+              if is_atom(replacement) do
+                {replacement, opts}
+              else
+                replacement
               end
           end
 
@@ -237,7 +254,7 @@ defmodule Absinthe.Pipeline do
   # Whether a phase configuration is for a given phase
   @spec match_phase?(Phase.t(), phase_config_t) :: boolean
   defp match_phase?(phase, phase), do: true
-  defp match_phase?(phase, {phase, _}), do: true
+  defp match_phase?(phase, {phase, _}) when is_atom(phase), do: true
   defp match_phase?(_, _), do: false
 
   @doc """
@@ -248,7 +265,7 @@ defmodule Absinthe.Pipeline do
       iex> Pipeline.upto([A, B, C], B)
       [A, B]
   """
-  @spec upto(t, atom) :: t
+  @spec upto(t, phase_config_t) :: t
   def upto(pipeline, phase) do
     beginning = before(pipeline, phase)
     item = get_in(pipeline, [Access.at(length(beginning))])
@@ -345,10 +362,14 @@ defmodule Absinthe.Pipeline do
     {:ok, input, done}
   end
 
-  def run_phase([phase_config | todo], input, done) do
+  def run_phase([phase_config | todo] = all_phases, input, done) do
     {phase, options} = phase_invocation(phase_config)
 
     case phase.run(input, options) do
+      {:record_phases, result, fun} ->
+        result = fun.(result, all_phases)
+        run_phase(todo, result, [phase | done])
+
       {:ok, result} ->
         run_phase(todo, result, [phase | done])
 

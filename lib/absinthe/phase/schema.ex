@@ -3,7 +3,7 @@ defmodule Absinthe.Phase.Schema do
 
   # Populate all schema nodes and the adapter for the blueprint tree. If the
   # blueprint tree is a _schema_ tree, this schema is the meta schema (source of
-  # IDL directives, etc).
+  # SDL directives, etc).
   #
   # Note that no validation occurs in this phase.
 
@@ -22,15 +22,27 @@ defmodule Absinthe.Phase.Schema do
   # Thus at each node we need only concern ourselves with immediate children.
   @spec run(Blueprint.t(), Keyword.t()) :: {:ok, Blueprint.t()}
   def run(input, options \\ []) do
-    schema = Keyword.fetch!(options, :schema)
-    adapter = Keyword.get(options, :adapter, Absinthe.Adapter.LanguageConventions)
+    {input, schema} = apply_settings(input, Map.new(options))
 
     result =
       input
       |> update_context(schema)
-      |> Blueprint.prewalk(&handle_node(&1, schema, adapter))
+      |> Blueprint.prewalk(&handle_node(&1, schema, input.adapter))
 
     {:ok, result}
+  end
+
+  # Set schema and adapter settings on the blueprint appropriate to whether we're
+  # applying a normal schema for a document or a prototype schema used to define
+  # a schema.
+  defp apply_settings(input, %{prototype_schema: schema} = options) do
+    adapter = Map.get(options, :adapter, Absinthe.Adapter.LanguageConventions)
+    {%{input | prototype_schema: schema, adapter: adapter}, schema}
+  end
+
+  defp apply_settings(input, options) do
+    adapter = Map.get(options, :adapter, Absinthe.Adapter.LanguageConventions)
+    {%{input | schema: options.schema, adapter: adapter}, options.schema}
   end
 
   defp update_context(input, nil), do: input
@@ -41,7 +53,7 @@ defmodule Absinthe.Phase.Schema do
   end
 
   defp handle_node(%Blueprint{} = node, schema, adapter) do
-    set_children(%{node | schema: schema, adapter: adapter}, schema, adapter)
+    set_children(node, schema, adapter)
   end
 
   defp handle_node(%Absinthe.Blueprint.Document.VariableDefinition{} = node, _, _) do
@@ -73,12 +85,7 @@ defmodule Absinthe.Phase.Schema do
   end
 
   defp set_schema_node(%Blueprint.Directive{name: name} = node, _parent, schema, adapter) do
-    schema_node =
-      name
-      |> adapter.to_internal_name(:directive)
-      |> schema.__absinthe_directive__
-
-    %{node | schema_node: schema_node}
+    %{node | schema_node: find_schema_directive(name, schema, adapter)}
   end
 
   defp set_schema_node(
@@ -111,12 +118,7 @@ defmodule Absinthe.Phase.Schema do
       type_reference
       |> type_reference_to_type(schema)
 
-    wrapped
-    |> Type.unwrap()
-    |> case do
-      nil -> node
-      _ -> %{node | schema_node: wrapped}
-    end
+    %{node | schema_node: wrapped}
   end
 
   defp set_schema_node(node, %{schema_node: nil}, _, _) do
@@ -152,7 +154,8 @@ defmodule Absinthe.Phase.Schema do
   end
 
   defp set_schema_node(%Blueprint.Input.Argument{name: name} = node, parent, _schema, adapter) do
-    %{node | schema_node: find_schema_argument(parent.schema_node, name, adapter)}
+    schema_node = find_schema_argument(parent.schema_node, name, adapter)
+    %{node | schema_node: schema_node}
   end
 
   defp set_schema_node(%Blueprint.Document.Fragment.Spread{} = node, _, _, _) do
@@ -212,6 +215,14 @@ defmodule Absinthe.Phase.Schema do
     arguments
     |> Map.values()
     |> Enum.find(&match?(%{name: ^internal_name}, &1))
+  end
+
+  # Given a name, lookup a schema directive
+  @spec find_schema_directive(String.t(), Absinthe.Schema.t(), Absinthe.Adapter.t()) ::
+          nil | Type.Directive.t()
+  defp find_schema_directive(name, schema, adapter) do
+    internal_name = adapter.to_internal_name(name, :directive)
+    schema.__absinthe_directive__(internal_name)
   end
 
   # Given a schema type, lookup a child field definition

@@ -1,5 +1,6 @@
 defmodule Absinthe.Fixtures.ColorSchema do
   use Absinthe.Schema
+  use Absinthe.Fixture
 
   @names %{
     r: "RED",
@@ -23,6 +24,30 @@ defmodule Absinthe.Fixtures.ColorSchema do
       ],
       resolve: fn %{channel: channel}, _ ->
         {:ok, %{name: @names[channel], value: @values[channel]}}
+      end
+
+    field :infos,
+      type: list_of(:channel_info),
+      args: [
+        channels: [type: list_of(:channel), default_value: [:r, :g]]
+      ],
+      resolve: fn %{channels: channels}, _ ->
+        {:ok,
+         Enum.map(channels, fn channel ->
+           %{name: @names[channel], value: @values[channel]}
+         end)}
+      end
+
+    field :more_infos,
+      type: list_of(:channel_info),
+      args: [
+        channels: [type: list_of(:channel), default_value: :r]
+      ],
+      resolve: fn %{channels: channels}, _ ->
+        {:ok,
+         Enum.map(channels, fn channel ->
+           %{name: @names[channel], value: @values[channel]}
+         end)}
       end
   end
 

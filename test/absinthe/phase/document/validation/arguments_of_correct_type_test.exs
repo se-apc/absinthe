@@ -802,6 +802,37 @@ defmodule Absinthe.Phase.Document.Validation.ArgumentsOfCorrectTypeTest do
       )
     end
 
+    test "Partial object, list with correct value" do
+      assert_passes_validation(
+        """
+        {
+          complicatedArgs {
+            complexArgField(complexArgList: [{ requiredField: true }])
+          }
+        }
+        """,
+        []
+      )
+    end
+
+    test "Partial object, list with bad value" do
+      assert_fails_validation(
+        """
+        {
+          complicatedArgs {
+            complexArgField(complexArgList: [2])
+          }
+        }
+        """,
+        [],
+        [
+          bad_argument("complexArgList", "[ComplexInput]", "[2]", 3, [
+            @phase.value_error_message(0, "ComplexInput", "2")
+          ])
+        ]
+      )
+    end
+
     test "Full object" do
       assert_passes_validation(
         """
@@ -888,7 +919,7 @@ defmodule Absinthe.Phase.Document.Validation.ArgumentsOfCorrectTypeTest do
       )
     end
 
-    test "Partial object, unknown field arg" do
+    test "Partial object, unknown field arg without suggestion" do
       assert_fails_validation(
         """
         {
@@ -908,6 +939,35 @@ defmodule Absinthe.Phase.Document.Validation.ArgumentsOfCorrectTypeTest do
           3,
           [
             @phase.unknown_field_error_message("unknownField")
+          ]
+        )
+      )
+    end
+
+    test "Partial object, unknown field arg with suggestion" do
+      assert_fails_validation(
+        """
+        {
+          complicatedArgs {
+            complexArgField(complexArg: {
+              requiredField: true,
+              strinField: "value"
+            })
+          }
+        }
+        """,
+        [],
+        bad_argument(
+          "complexArg",
+          "ComplexInput",
+          ~s({requiredField: true, strinField: "value"}),
+          3,
+          [
+            @phase.unknown_field_error_message("strinField", [
+              "string_list_field",
+              "int_field",
+              "string_field"
+            ])
           ]
         )
       )

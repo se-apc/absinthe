@@ -3,12 +3,10 @@ defmodule Absinthe.Phase.Schema.Introspection do
 
   use Absinthe.Phase
   alias Absinthe.Blueprint
-  alias Absinthe.Blueprint.Schema
 
   alias Absinthe.Blueprint.Schema.FieldDefinition
   alias Absinthe.Blueprint.Schema.InputValueDefinition
   alias Absinthe.Blueprint.TypeReference.NonNull
-  alias Absinthe.Blueprint.Schema.ScalarTypeDefinition
   alias Absinthe.Blueprint.Schema.ObjectTypeDefinition
   alias Absinthe.Blueprint.Schema.ListTypeDefinition
   alias Absinthe.Blueprint.Schema.UnionTypeDefinition
@@ -67,6 +65,7 @@ defmodule Absinthe.Phase.Schema.Introspection do
       module: __MODULE__,
       type: :string,
       description: "The name of the object type currently being queried.",
+      complexity: 0,
       triggers: %{},
       middleware: [
         {:ref, __MODULE__, :typename}

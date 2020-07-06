@@ -65,6 +65,14 @@ defmodule Absinthe.Phase.Schema.Validation.TypeNamesAreReserved do
     entity
   end
 
+  defp reserved_name_ok_flag?(%{flags: flags}) do
+    flags[:reserved_name]
+  end
+
+  defp reserved_name_ok_flag?(_) do
+    false
+  end
+
   defp error(object, data) do
     %Absinthe.Phase.Error{
       message: explanation(data),

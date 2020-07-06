@@ -2,12 +2,34 @@ defmodule Absinthe.Schema.Notation do
   alias Absinthe.Blueprint.Schema
   alias Absinthe.Utils
 
+  @moduledoc """
+  Provides a set of macro's to use when creating a schema. Especially useful
+  when moving definitions out into a different module than the schema itself.
+
+  ## Example
+
+      defmodule MyAppWeb.Schema.Types do
+        use Absinthe.Schema.Notation
+
+        object :item do
+          field :id, :id
+          field :name, :string
+        end
+
+        # ...
+
+      end
+
+  """
+
   Module.register_attribute(__MODULE__, :placement, accumulate: true)
 
-  defmacro __using__(_opts) do
+  defmacro __using__(import_opts \\ [only: :macros]) do
     Module.register_attribute(__CALLER__.module, :absinthe_blueprint, accumulate: true)
     Module.register_attribute(__CALLER__.module, :absinthe_desc, accumulate: true)
     put_attr(__CALLER__.module, %Absinthe.Blueprint{schema: __CALLER__.module})
+    Module.put_attribute(__CALLER__.module, :absinthe_scope_stack, [:schema])
+    Module.put_attribute(__CALLER__.module, :absinthe_scope_stack_stash, [])
 
     quote do
       import Absinthe.Resolution.Helpers,
@@ -20,7 +42,7 @@ defmodule Absinthe.Schema.Notation do
 
       Module.register_attribute(__MODULE__, :__absinthe_type_import__, accumulate: true)
       @desc nil
-      import unquote(__MODULE__), only: :macros
+      import unquote(__MODULE__), unquote(import_opts)
       @before_compile unquote(__MODULE__)
     end
   end
@@ -147,9 +169,8 @@ defmodule Absinthe.Schema.Notation do
 
   defmacro object(identifier, _attrs, _block) when identifier in @reserved_identifiers do
     raise Absinthe.Schema.Notation.Error,
-          "Invalid schema notation: cannot create an `object` with reserved identifier `#{
-            identifier
-          }`"
+          "Invalid schema notation: cannot create an `object` " <>
+            "with reserved identifier `#{identifier}`"
   end
 
   defmacro object(identifier, attrs, do: block) do
@@ -173,7 +194,7 @@ defmodule Absinthe.Schema.Notation do
     |> record!(Schema.ObjectTypeDefinition, identifier, attrs, block)
   end
 
-  @placement {:interfaces, [under: :object]}
+  @placement {:interfaces, [under: [:object]]}
   @doc """
   Declare implemented interfaces for an object.
 
@@ -199,7 +220,7 @@ defmodule Absinthe.Schema.Notation do
     |> record_interfaces!(ifaces)
   end
 
-  @placement {:resolve, [under: [:field]]}
+  @placement {:deprecate, [under: [:field]]}
   @doc """
   Mark a field as deprecated
 
@@ -252,14 +273,10 @@ defmodule Absinthe.Schema.Notation do
   end
   ```
   """
-  @placement {:interface_attribute, [under: :object]}
+  @placement {:interface_attribute, [under: [:object]]}
   defmacro interface(identifier) do
     __CALLER__
-    |> recordable!(
-      :interface_attribute,
-      @placement[:interface_attribute],
-      as: "`interface` (as an attribute)"
-    )
+    |> recordable!(:interface_attribute, @placement[:interface_attribute])
     |> record_interface!(identifier)
   end
 
@@ -541,6 +558,33 @@ defmodule Absinthe.Schema.Notation do
   end
 
   @placement {:complexity, [under: [:field]]}
+  @doc """
+  Set the complexity of a field
+
+  For a field, the first argument to the function you supply to complexity/1 is the user arguments -- just as a field's resolver can use user arguments to resolve its value, the complexity function that you provide can use the same arguments to calculate the field's complexity.
+
+  The second argument passed to your complexity function is the sum of all the complexity scores of all the fields nested below the current field.
+
+  (If a complexity function accepts three arguments, the third will be an `%Absinthe.Resolution{}` struct, just as with resolvers.)
+
+  ## Placement
+
+  #{Utils.placement_docs(@placement)}
+
+  ## Examples
+  ```
+  query do
+    field :people, list_of(:person) do
+      arg :limit, :integer, default_value: 10
+      complexity fn %{limit: limit}, child_complexity ->
+        # set complexity based on maximum number of items in the list and
+        # complexity of a child.
+        limit * child_complexity
+      end
+    end
+  end
+  ```
+  """
   defmacro complexity(func_ast) do
     __CALLER__
     |> recordable!(:complexity, @placement[:complexity])
@@ -581,14 +625,17 @@ defmodule Absinthe.Schema.Notation do
   ```
   field do
     arg :size, :integer
-    arg :name, :string, description: "The desired name"
+    arg :name, non_null(:string), description: "The desired name"
+    arg :public, :boolean, default_value: true
   end
   ```
   """
   defmacro arg(identifier, type, attrs) do
+    attrs = handle_arg_attrs(identifier, type, attrs)
+
     __CALLER__
     |> recordable!(:arg, @placement[:arg])
-    |> record_arg!(identifier, expand_ast(Keyword.put(attrs, :type, type), __CALLER__))
+    |> record!(Schema.InputValueDefinition, identifier, attrs, nil)
   end
 
   @doc """
@@ -597,15 +644,19 @@ defmodule Absinthe.Schema.Notation do
   See `arg/3`
   """
   defmacro arg(identifier, attrs) when is_list(attrs) do
+    attrs = handle_arg_attrs(identifier, nil, attrs)
+
     __CALLER__
     |> recordable!(:arg, @placement[:arg])
-    |> record_arg!(identifier, expand_ast(attrs, __CALLER__))
+    |> record!(Schema.InputValueDefinition, identifier, attrs, nil)
   end
 
   defmacro arg(identifier, type) do
+    attrs = handle_arg_attrs(identifier, type, [])
+
     __CALLER__
     |> recordable!(:arg, @placement[:arg])
-    |> record_arg!(identifier, expand_ast([type: type], __CALLER__))
+    |> record!(Schema.InputValueDefinition, identifier, attrs, nil)
   end
 
   # SCALARS
@@ -794,7 +845,7 @@ defmodule Absinthe.Schema.Notation do
     |> record_directive!(identifier, attrs, block)
   end
 
-  @placement {:on, [under: :directive]}
+  @placement {:on, [under: [:directive]]}
   @doc """
   Declare a directive as operating an a AST node type
 
@@ -810,7 +861,7 @@ defmodule Absinthe.Schema.Notation do
     |> record_locations!(ast_node)
   end
 
-  @placement {:expand, [under: :directive]}
+  @placement {:expand, [under: [:directive]]}
   @doc """
   Define the expansion for a directive
 
@@ -998,9 +1049,11 @@ defmodule Absinthe.Schema.Notation do
   #{Utils.placement_docs(@placement)}
   """
   defmacro value(identifier, raw_attrs \\ []) do
+    attrs = expand_ast(raw_attrs, __CALLER__)
+
     __CALLER__
     |> recordable!(:value, @placement[:value])
-    |> record_value!(identifier, raw_attrs)
+    |> record_value!(identifier, attrs)
   end
 
   # GENERAL ATTRIBUTES
@@ -1030,6 +1083,12 @@ defmodule Absinthe.Schema.Notation do
 
   See `field/3` for examples
   """
+
+  defmacro non_null({:non_null, _, _}) do
+    raise Absinthe.Schema.Notation.Error,
+          "Invalid schema notation: `non_null` must not be nested"
+  end
+
   defmacro non_null(type) do
     %Absinthe.Blueprint.TypeReference.NonNull{of_type: expand_ast(type, __CALLER__)}
   end
@@ -1185,6 +1244,7 @@ defmodule Absinthe.Schema.Notation do
     Schema.EnumTypeDefinition,
     Schema.EnumValueDefinition,
     Schema.InputObjectTypeDefinition,
+    Schema.InputValueDefinition,
     Schema.UnionTypeDefinition,
     Schema.InterfaceTypeDefinition,
     Schema.DirectiveDefinition
@@ -1195,20 +1255,11 @@ defmodule Absinthe.Schema.Notation do
     scoped_def(env, type, identifier, attrs, block)
   end
 
-  defp build_arg(identifier, attrs, env) do
-    attrs =
-      attrs
-      |> handle_deprecate
-      |> Keyword.put(:identifier, identifier)
-      |> Keyword.put(:name, to_string(identifier))
-      |> put_reference(env)
-
-    struct!(Schema.InputValueDefinition, attrs)
-  end
-
-  def record_arg!(env, identifier, attrs) do
-    arg = build_arg(identifier, Keyword.put(attrs, :module, env.module), env)
-    put_attr(env.module, arg)
+  def handle_arg_attrs(identifier, type, raw_attrs) do
+    raw_attrs
+    |> Keyword.put_new(:name, to_string(identifier))
+    |> Keyword.put_new(:type, type)
+    |> handle_deprecate
   end
 
   @doc false
@@ -1323,10 +1374,21 @@ defmodule Absinthe.Schema.Notation do
   end
 
   def handle_enum_value_attrs(identifier, raw_attrs) do
+    value =
+      case Keyword.get(raw_attrs, :as, identifier) do
+        value when is_tuple(value) ->
+          raise Absinthe.Schema.Notation.Error,
+                "Invalid Enum value for #{inspect(identifier)}. " <>
+                  "Must be a literal term, dynamic values must use `hydrate`"
+
+        value ->
+          value
+      end
+
     raw_attrs
     |> expand_ast(raw_attrs)
     |> Keyword.put(:identifier, identifier)
-    |> Keyword.put(:value, Keyword.get(raw_attrs, :as, identifier))
+    |> Keyword.put(:value, value)
     |> Keyword.put_new(:name, String.upcase(to_string(identifier)))
     |> Keyword.delete(:as)
     |> handle_deprecate
@@ -1389,17 +1451,24 @@ defmodule Absinthe.Schema.Notation do
 
   @doc false
   defmacro pop() do
+    module = __CALLER__.module
+    popped = pop_stack(module, :absinthe_scope_stack_stash)
+    push_stack(module, :absinthe_scope_stack, popped)
     put_attr(__CALLER__.module, :pop)
   end
 
   @doc false
   defmacro stash() do
-    put_attr(__CALLER__.module, :stash)
+    module = __CALLER__.module
+    popped = pop_stack(module, :absinthe_scope_stack)
+    push_stack(module, :absinthe_scope_stack_stash, popped)
+    put_attr(module, :stash)
   end
 
   @doc false
   defmacro close_scope() do
     put_attr(__CALLER__.module, :close)
+    pop_stack(__CALLER__.module, :absinthe_scope_stack)
   end
 
   def put_reference(attrs, env) do
@@ -1416,6 +1485,18 @@ defmodule Absinthe.Schema.Notation do
     }
   end
 
+  @scope_map %{
+    Schema.ObjectTypeDefinition => :object,
+    Schema.FieldDefinition => :field,
+    Schema.ScalarTypeDefinition => :scalar,
+    Schema.EnumTypeDefinition => :enum,
+    Schema.EnumValueDefinition => :value,
+    Schema.InputObjectTypeDefinition => :input_object,
+    Schema.InputValueDefinition => :arg,
+    Schema.UnionTypeDefinition => :union,
+    Schema.InterfaceTypeDefinition => :interface,
+    Schema.DirectiveDefinition => :directive
+  }
   defp scoped_def(caller, type, identifier, attrs, body) do
     attrs =
       attrs
@@ -1428,6 +1509,8 @@ defmodule Absinthe.Schema.Notation do
 
     ref = put_attr(caller.module, definition)
 
+    push_stack(caller.module, :absinthe_scope_stack, Map.fetch!(@scope_map, type))
+
     [
       get_desc(ref),
       body,
@@ -1439,6 +1522,18 @@ defmodule Absinthe.Schema.Notation do
     quote do
       unquote(__MODULE__).put_desc(__MODULE__, unquote(ref))
     end
+  end
+
+  defp push_stack(module, key, val) do
+    stack = Module.get_attribute(module, key)
+    stack = [val | stack]
+    Module.put_attribute(module, key, stack)
+  end
+
+  defp pop_stack(module, key) do
+    [popped | stack] = Module.get_attribute(module, key)
+    Module.put_attribute(module, key, stack)
+    popped
   end
 
   def put_attr(module, thing) do
@@ -1458,9 +1553,29 @@ defmodule Absinthe.Schema.Notation do
     |> Absinthe.Utils.camelize()
   end
 
-  defp do_import_types({{:., _, [root_ast, :{}]}, _, modules_ast_list}, env, opts) do
-    {:__aliases__, _, root} = root_ast
+  defp do_import_types({{:., _, [{:__MODULE__, _, _}, :{}]}, _, modules_ast_list}, env, opts) do
+    for {_, _, leaf} <- modules_ast_list do
+      type_module = Module.concat([env.module | leaf])
 
+      do_import_types(type_module, env, opts)
+    end
+  end
+
+  defp do_import_types(
+         {{:., _, [{:__aliases__, _, [{:__MODULE__, _, _} | tail]}, :{}]}, _, modules_ast_list},
+         env,
+         opts
+       ) do
+    root_module = Module.concat([env.module | tail])
+
+    for {_, _, leaf} <- modules_ast_list do
+      type_module = Module.concat([root_module | leaf])
+
+      do_import_types(type_module, env, opts)
+    end
+  end
+
+  defp do_import_types({{:., _, [{:__aliases__, _, root}, :{}]}, _, modules_ast_list}, env, opts) do
     root_module = Module.concat(root)
     root_module_with_alias = Keyword.get(env.aliases, root_module, root_module)
 
@@ -1483,7 +1598,8 @@ defmodule Absinthe.Schema.Notation do
     []
   end
 
-  @spec do_import_sdl(Macro.Env.t(), nil, [import_sdl_option()]) :: Macro.t()
+  @spec do_import_sdl(Macro.Env.t(), nil | String.t() | Macro.t(), [import_sdl_option()]) ::
+          Macro.t()
   defp do_import_sdl(env, nil, opts) do
     case Keyword.fetch(opts, :path) do
       {:ok, path} ->
@@ -1509,7 +1625,6 @@ defmodule Absinthe.Schema.Notation do
     end
   end
 
-  @spec do_import_sdl(Macro.Env.t(), String.t() | Macro.t(), Keyword.t()) :: Macro.t()
   defp do_import_sdl(env, sdl, opts) do
     ref = build_reference(env)
 
@@ -1684,8 +1799,16 @@ defmodule Absinthe.Schema.Notation do
     [{Absinthe.Middleware.MapGet, identifier}]
   end
 
-  def __ensure_middleware__(middleware, _field, _object) do
+  # Don't install Telemetry middleware for Introspection fields
+  @introspection [Absinthe.Phase.Schema.Introspection, Absinthe.Type.BuiltIns.Introspection]
+  def __ensure_middleware__(middleware, %{definition: definition}, _object)
+      when definition in @introspection do
     middleware
+  end
+
+  # Install Telemetry middleware
+  def __ensure_middleware__(middleware, _field, _object) do
+    [{Absinthe.Middleware.Telemetry, []} | middleware]
   end
 
   defp reverse_with_descs(attrs, descs, acc \\ [])
@@ -1717,11 +1840,30 @@ defmodule Absinthe.Schema.Notation do
   @doc false
   # Ensure the provided operation can be recorded in the current environment,
   # in the current scope context
-  def recordable!(env, usage) do
-    recordable!(env, usage, Keyword.get(@placement, usage, []))
+  def recordable!(env, usage, placement) do
+    [scope | _] = Module.get_attribute(env.module, :absinthe_scope_stack)
+
+    unless recordable?(placement, scope) do
+      raise Absinthe.Schema.Notation.Error, invalid_message(placement, usage)
+    end
+
+    env
   end
 
-  def recordable!(env, _usage, _kw_rules, _opts \\ []) do
-    env
+  defp recordable?([under: under], scope), do: scope in under
+  defp recordable?([toplevel: true], scope), do: scope == :schema
+  defp recordable?([toplevel: false], scope), do: scope != :schema
+
+  defp invalid_message([under: under], usage) do
+    allowed = under |> Enum.map(&"`#{&1}`") |> Enum.join(", ")
+    "Invalid schema notation: `#{usage}` must only be used within #{allowed}"
+  end
+
+  defp invalid_message([toplevel: true], usage) do
+    "Invalid schema notation: `#{usage}` must only be used toplevel"
+  end
+
+  defp invalid_message([toplevel: false], usage) do
+    "Invalid schema notation: `#{usage}` must not be used toplevel"
   end
 end

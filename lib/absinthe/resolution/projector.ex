@@ -11,9 +11,13 @@ defmodule Absinthe.Resolution.Projector do
   the various type conditions that come along with fragments / inline fragments,
   field merging, and other wondeful stuff like that.
   """
-  def project(selections, %{identifier: identifier} = parent_type, path, cache, exec) do
-    path_names = for %{name: name, alias: alias} <- path, name, do: alias || name
-    key = {identifier, path_names}
+  def project(selections, %{identifier: parent_ident} = parent_type, path, cache, exec) do
+    path =
+      for %{parent_type: %{identifier: i}, name: name, alias: alias} <- path do
+        {i, alias || name}
+      end
+
+    key = [parent_ident | path]
 
     case Map.fetch(cache, key) do
       {:ok, fields} ->
@@ -113,7 +117,6 @@ defmodule Absinthe.Resolution.Projector do
 
   defp conditionally_collect(condition, selections, fragments, parent_type, schema, index, acc) do
     condition
-    |> Type.unwrap()
     |> normalize_condition(schema)
     |> passes_type_condition?(parent_type)
     |> case do
@@ -137,12 +140,11 @@ defmodule Absinthe.Resolution.Projector do
     normalize_condition(condition, schema)
   end
 
-  defp normalize_condition(%{} = condition, _schema) do
-    condition
-  end
-
   defp normalize_condition(condition, schema) do
-    Absinthe.Schema.lookup_type(schema, condition)
+    case Type.unwrap(condition) do
+      %{} = condition -> condition
+      value -> Absinthe.Schema.lookup_type(schema, value)
+    end
   end
 
   defp passes_type_condition?(%Type.Object{name: name}, %Type.Object{name: name}) do

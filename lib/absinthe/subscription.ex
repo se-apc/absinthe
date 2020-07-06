@@ -3,7 +3,7 @@ defmodule Absinthe.Subscription do
   Real time updates via GraphQL
 
   For a how to guide on getting started with Absinthe.Subscriptions in your phoenix
-  project see the Absinthe.Phoenix package.
+  project see the `Absinthe.Phoenix` package.
 
   Define in your schema via `Absinthe.Schema.subscription/2`
 
@@ -55,7 +55,7 @@ defmodule Absinthe.Subscription do
   ## Examples
 
   Note: As with all subscription examples if you're using Absinthe.Phoenix `pubsub`
-  will be `MyApp.Web.Endpoint`.
+  will be `MyAppWeb.Endpoint`.
 
   ```
   Absinthe.Subscription.publish(pubsub, user, [new_users: user.account_id])
@@ -109,7 +109,15 @@ defmodule Absinthe.Subscription do
   def subscribe(pubsub, field_key, doc_id, doc) do
     registry = pubsub |> registry_name
 
-    {:ok, _} = Registry.register(registry, field_key, {doc_id, doc})
+    doc_value = {
+      doc_id,
+      %{
+        initial_phases: doc.initial_phases,
+        source: doc.source
+      }
+    }
+
+    {:ok, _} = Registry.register(registry, field_key, doc_value)
     {:ok, _} = Registry.register(registry, {self(), doc_id}, field_key)
   end
 

@@ -10,6 +10,7 @@ defmodule Absinthe.Blueprint.Schema.ObjectTypeDefinition do
     :module,
     description: nil,
     interfaces: [],
+    interface_blueprints: [],
     fields: [],
     directives: [],
     is_type_of: nil,
@@ -28,6 +29,7 @@ defmodule Absinthe.Blueprint.Schema.ObjectTypeDefinition do
           description: nil | String.t(),
           fields: [Blueprint.Schema.FieldDefinition.t()],
           interfaces: [String.t()],
+          interface_blueprints: [Blueprint.Draft.t()],
           directives: [Blueprint.Directive.t()],
           source_location: nil | Blueprint.SourceLocation.t(),
           # Added by phases
@@ -47,7 +49,8 @@ defmodule Absinthe.Blueprint.Schema.ObjectTypeDefinition do
       fields: build_fields(type_def, schema),
       interfaces: type_def.interfaces,
       definition: type_def.module,
-      is_type_of: type_def.is_type_of
+      is_type_of: type_def.is_type_of,
+      __private__: type_def.__private__
     }
   end
 
@@ -86,5 +89,10 @@ defmodule Absinthe.Blueprint.Schema.ObjectTypeDefinition do
 
       {arg_def.identifier, arg}
     end)
+  end
+
+  defimpl Inspect do
+    defdelegate inspect(term, options),
+      to: Absinthe.Schema.Notation.SDL.Render
   end
 end

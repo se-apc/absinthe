@@ -165,7 +165,7 @@ defmodule Absinthe.SchemaTest do
     end
 
     test "adds the types from a grandparent" do
-      assert %{foo: "Foo", bar: "Bar", baz: "Baz"} = ThirdSchema.__absinthe_types__()
+      assert %{foo: "Foo", bar: "Bar", baz: "Baz"} = ThirdSchema.__absinthe_types__(:all)
       assert "Foo" == ThirdSchema.__absinthe_type__(:foo).name
     end
   end
@@ -198,10 +198,10 @@ defmodule Absinthe.SchemaTest do
     end
   end
 
-  describe "used_types" do
+  describe "referenced_types" do
     test "does not contain introspection types" do
       assert !Enum.any?(
-               Schema.used_types(ThirdSchema),
+               Schema.referenced_types(ThirdSchema),
                &Type.introspection?/1
              )
     end
@@ -209,7 +209,7 @@ defmodule Absinthe.SchemaTest do
     test "contains enums" do
       types =
         ThirdSchema
-        |> Absinthe.Schema.used_types()
+        |> Absinthe.Schema.referenced_types()
         |> Enum.map(& &1.identifier)
 
       assert :some_enum in types
@@ -219,7 +219,7 @@ defmodule Absinthe.SchemaTest do
     test "contains interfaces" do
       types =
         ThirdSchema
-        |> Absinthe.Schema.used_types()
+        |> Absinthe.Schema.referenced_types()
         |> Enum.map(& &1.identifier)
 
       assert :named in types
@@ -228,7 +228,7 @@ defmodule Absinthe.SchemaTest do
     test "contains types only connected via interfaces" do
       types =
         ThirdSchema
-        |> Absinthe.Schema.used_types()
+        |> Absinthe.Schema.referenced_types()
         |> Enum.map(& &1.identifier)
 
       assert :person in types
@@ -237,7 +237,7 @@ defmodule Absinthe.SchemaTest do
     test "contains types only connected via union" do
       types =
         ThirdSchema
-        |> Absinthe.Schema.used_types()
+        |> Absinthe.Schema.referenced_types()
         |> Enum.map(& &1.identifier)
 
       assert :dog in types
@@ -286,6 +286,14 @@ defmodule Absinthe.SchemaTest do
     test "have the correct structure" do
       assert %Type.Argument{name: "family_name"} =
                Schema.lookup_type(RootsSchema, :query).fields.name.args.family_name
+    end
+  end
+
+  describe "to_sdl/1" do
+    test "return schema sdl" do
+      assert Schema.to_sdl(SourceSchema) == """
+             schema {\n  query: RootQueryType\n}\n\ntype Foo {\n  name: String\n}\n\n\"can describe query\"\ntype RootQueryType {\n  foo: Foo\n}
+             """
     end
   end
 
@@ -371,7 +379,6 @@ defmodule Absinthe.SchemaTest do
   end
 
   describe "can add metadata to an object" do
-    @tag :wip
     test "sets object metadata" do
       foo = Schema.lookup_type(MetadataSchema, :foo)
 

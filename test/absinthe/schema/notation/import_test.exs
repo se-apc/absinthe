@@ -1,5 +1,16 @@
 defmodule Absinthe.Schema.Notation.ImportTest do
-  use ExUnit.Case, async: true
+  use Absinthe.Case, async: true
+
+  defp field_list(module, name) do
+    module.__absinthe_type__(name).fields
+    |> Enum.filter(&(!introspection?(&1)))
+    |> Keyword.keys()
+    |> Enum.sort()
+  end
+
+  defp introspection?({_, field}) do
+    Absinthe.Type.introspection?(field)
+  end
 
   defp field_list(module, name) do
     module.__absinthe_type__(name).fields

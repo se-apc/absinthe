@@ -15,7 +15,7 @@ defmodule Absinthe.Type.Directive do
 
   * `:name` - The name of the directivee. Should be a lowercase `binary`. Set automatically.
   * `:description` - A nice description for introspection.
-  * `:args` - A map of `Absinthe.Type.Argument` structs. See `Absinthe.Schema.Notation.arg/1`.
+  * `:args` - A map of `Absinthe.Type.Argument` structs. See `Absinthe.Schema.Notation.arg/2`.
   * `:locations` - A list of places the directives can be used.
 
   The `:__reference__` key is for internal use.
@@ -61,6 +61,17 @@ defmodule Absinthe.Type.Directive do
   defp do_on?(:fragment_definition, %Language.Fragment{}), do: true
   defp do_on?(:fragment_spread, %Language.FragmentSpread{}), do: true
   defp do_on?(:inline_fragment, %Language.InlineFragment{}), do: true
-  # TODO: Schema definitions to support Schema input
+  defp do_on?(:schema, %Language.SchemaDefinition{}), do: true
+  defp do_on?(:schema, %Language.SchemaDeclaration{}), do: true
+  defp do_on?(:scalar, %Language.ScalarTypeDefinition{}), do: true
+  defp do_on?(:object, %Language.ObjectTypeDefinition{}), do: true
+  defp do_on?(:field_definition, %Language.FieldDefinition{}), do: true
+  defp do_on?(:interface, %Language.InterfaceTypeDefinition{}), do: true
+  defp do_on?(:union, %Language.UnionTypeDefinition{}), do: true
+  defp do_on?(:enum, %Language.EnumTypeDefinition{}), do: true
+  defp do_on?(:enum_value, %Language.EnumValueDefinition{}), do: true
+  defp do_on?(:input_object, %Language.InputObjectTypeDefinition{}), do: true
+  defp do_on?(:argument_definition, %Language.InputValueDefinition{}), do: true
+  defp do_on?(:input_field_definition, %Language.InputValueDefinition{}), do: true
   defp do_on?(_, _), do: false
 end

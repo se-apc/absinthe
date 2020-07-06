@@ -77,8 +77,25 @@ defmodule Absinthe.Fixtures.ImportTypes do
     end
   end
 
+  defmodule Schema.Types.Flag do
+    use Absinthe.Schema.Notation
+
+    object :flag do
+      field :name, non_null(:string)
+      field :key, non_null(:string)
+      field :enabled, non_null(:boolean)
+    end
+  end
+
+  defmodule Schema.Types.Enum.ValueType do
+    use Absinthe.Schema.Notation
+
+    enum :value_type_enum, values: [:number, :boolean, :string]
+  end
+
   defmodule Schema do
     use Absinthe.Schema
+    use Absinthe.Fixture
 
     import_types Absinthe.Fixtures.ImportTypes.{AccountTypes, OrderTypes}
     import_types Absinthe.Fixtures.ImportTypes.ReceiptTypes
@@ -87,10 +104,65 @@ defmodule Absinthe.Fixtures.ImportTypes do
     import_types ImportTypes.ScheduleTypes
     import_types ImportTypes.{ProfileTypes, AuthTypes, Shared.AvatarTypes}
 
+    import_types __MODULE__.Types.{Flag, Enum.ValueType}
+
     query do
       field :orders, list_of(:order)
       field :employees, list_of(:employee)
       field :customers, list_of(:customer)
+    end
+  end
+
+  defmodule SelfContainedSchema do
+    use Absinthe.Schema
+    use Absinthe.Fixture
+
+    defmodule PaymentTypes do
+      use Absinthe.Schema.Notation
+
+      object :credit_card do
+        field :number, non_null(:string)
+        field :type, non_null(:credit_card_type)
+        field :expiration_month, non_null(:integer)
+        field :expiration_year, non_null(:integer)
+        field :cvv, non_null(:string)
+      end
+    end
+
+    defmodule CardTypes do
+      use Absinthe.Schema.Notation
+
+      enum :credit_card_type, values: [:visa, :mastercard, :amex]
+    end
+
+    defmodule Errors.DeclineReasons do
+      use Absinthe.Schema.Notation
+
+      enum :decline_reasons, values: [:insufficient_funds, :invalid_card]
+    end
+
+    defmodule Types.Category do
+      use Absinthe.Schema.Notation
+
+      object :category do
+        field :name, non_null(:string)
+        field :slug, non_null(:string)
+        field :description, :string
+      end
+    end
+
+    defmodule Types.Enums.Role do
+      use Absinthe.Schema.Notation
+
+      enum :role_enum, values: [:admin, :client]
+    end
+
+    import_types __MODULE__.Errors.DeclineReasons
+    import_types __MODULE__.{PaymentTypes, CardTypes}
+    import_types __MODULE__.Types.{Category, Enums.Role}
+
+    query do
+      field :credit_cards, list_of(:credit_card)
     end
   end
 end

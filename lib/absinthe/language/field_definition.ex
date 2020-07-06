@@ -8,6 +8,7 @@ defmodule Absinthe.Language.FieldDefinition do
             arguments: [],
             directives: [],
             type: nil,
+            complexity: nil,
             loc: %{line: nil}
 
   @type t :: %__MODULE__{
@@ -22,12 +23,13 @@ defmodule Absinthe.Language.FieldDefinition do
   defimpl Blueprint.Draft do
     def convert(node, doc) do
       %Blueprint.Schema.FieldDefinition{
-        name: node.name,
+        name: node.name |> Macro.underscore(),
         description: node.description,
         identifier: node.name |> Macro.underscore() |> String.to_atom(),
         arguments: Absinthe.Blueprint.Draft.convert(node.arguments, doc),
         directives: Absinthe.Blueprint.Draft.convert(node.directives, doc),
         type: Absinthe.Blueprint.Draft.convert(node.type, doc),
+        complexity: node.complexity,
         source_location: source_location(node)
       }
     end

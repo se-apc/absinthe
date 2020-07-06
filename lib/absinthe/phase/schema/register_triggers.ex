@@ -44,6 +44,7 @@ defmodule Absinthe.Phase.Schema.RegisterTriggers do
       triggers =
         for sub_field <- sub_fields,
             sub_triggers = Absinthe.Type.function(sub_field, :triggers),
+            is_map(sub_triggers),
             Map.has_key?(sub_triggers, mut_field.identifier),
             do: sub_field.identifier
 

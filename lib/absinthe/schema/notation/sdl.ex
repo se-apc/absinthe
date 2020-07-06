@@ -5,10 +5,10 @@ defmodule Absinthe.Schema.Notation.SDL do
   Parse definitions from SDL source
   """
 
-  alias Absinthe.Blueprint
+  alias Absinthe.{Blueprint, Language.Source}
 
-  @spec parse(sdl :: String.t(), Module.t(), map(), Keyword.t()) ::
-          {:ok, [Absinthe.Blueprint.Schema.type_t()]} | {:error, String.t()}
+  @spec parse(sdl :: Source.t() | Blueprint.t(), module(), map(), Keyword.t()) ::
+          {:ok, [Blueprint.Schema.t()]} | {:error, String.t()}
   def parse(sdl, module, ref, opts) do
     with {:ok, doc} <- Absinthe.Phase.Parse.run(sdl) do
       definitions =
@@ -19,7 +19,7 @@ defmodule Absinthe.Schema.Notation.SDL do
 
       {:ok, definitions}
     else
-      {:error, %Absinthe.Blueprint{execution: %{validation_errors: [_ | _] = errors}}} ->
+      {:error, %Blueprint{execution: %{validation_errors: [_ | _] = errors}}} ->
         error =
           errors
           |> Enum.map(&"#{&1.message} (#{inspect(&1.locations)})")
@@ -32,8 +32,26 @@ defmodule Absinthe.Schema.Notation.SDL do
     end
   end
 
+  defp put_ref(%{fields: fields, directives: directives} = node, ref, opts) do
+    %{
+      node
+      | fields: Enum.map(fields, &put_ref(&1, ref, opts)),
+        directives: Enum.map(directives, &put_ref(&1, ref, opts))
+    }
+    |> do_put_ref(ref, opts)
+  end
+
   defp put_ref(%{fields: fields} = node, ref, opts) do
     %{node | fields: Enum.map(fields, &put_ref(&1, ref, opts))}
+    |> do_put_ref(ref, opts)
+  end
+
+  defp put_ref(%{arguments: args, directives: directives} = node, ref, opts) do
+    %{
+      node
+      | arguments: Enum.map(args, &put_ref(&1, ref, opts)),
+        directives: Enum.map(directives, &put_ref(&1, ref, opts))
+    }
     |> do_put_ref(ref, opts)
   end
 
@@ -42,8 +60,8 @@ defmodule Absinthe.Schema.Notation.SDL do
     |> do_put_ref(ref, opts)
   end
 
-  defp put_ref(%{directives: dirs} = node, ref, opts) do
-    %{node | directives: Enum.map(dirs, &put_ref(&1, ref, opts))}
+  defp put_ref(%{directives: directives} = node, ref, opts) do
+    %{node | directives: Enum.map(directives, &put_ref(&1, ref, opts))}
     |> do_put_ref(ref, opts)
   end
 
@@ -75,16 +93,11 @@ defmodule Absinthe.Schema.Notation.SDL do
           ref
 
         path ->
-          put_in(ref.location, %{file: {:unquote, [], [path]}, line: node.source_location.line})
-      end
-
-    name =
-      cond do
-        node_type in @field_types ->
-          adapter.to_internal_name(name, :field)
-
-        true ->
-          name
+          put_in(ref.location, %{
+            file: {:unquote, [], [path]},
+            line: node.source_location.line,
+            column: node.source_location.column
+          })
       end
 
     %{node | __reference__: ref, name: name}
